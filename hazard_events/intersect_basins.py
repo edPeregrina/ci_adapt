@@ -21,7 +21,7 @@ QgsApplication.processingRegistry().addProvider(QgsNativeAlgorithms())
 
 import processing
 # intersect basin polygons with flood map
-processing.run("native:intersection", {'INPUT':'C:/Data/Floods/Germany/interim_data/DERP_RW_L_4326_valid_lmu.geojson','OVERLAY':'C:/Data/Floods/basins/hybas_eu_lev01-12_v1c/hybas_eu_lev08_v1c_valid.shp','INPUT_FIELDS':['flood_area','depth_class','w_depth_l', 'w_depth_m', 'w_depth_u'],'OVERLAY_FIELDS':['HYBAS_ID','NEXT_DOWN','NEXT_SINK','MAIN_BAS','DIST_SINK','DIST_MAIN','SUB_AREA','UP_AREA','PFAF_ID','ORDER'],'OVERLAY_FIELDS_PREFIX':'','OUTPUT':'C:/Data/Floods/Germany/basin_intersections/DERP_RW_L_4326_hybas_intersections.geojson','GRID_SIZE':None})
+processing.run("native:intersection", {'INPUT':'C:/Data/Floods/Germany/interim_data/DERP_RW_H_4326_valid_lmu.geojson','OVERLAY':'C:/Data/Floods/basins/hybas_eu_lev01-12_v1c/hybas_eu_lev08_v1c_valid.shp','INPUT_FIELDS':['flood_area','depth_class','w_depth_l', 'w_depth_m', 'w_depth_u'],'OVERLAY_FIELDS':['HYBAS_ID','NEXT_DOWN','NEXT_SINK','MAIN_BAS','DIST_SINK','DIST_MAIN','SUB_AREA','UP_AREA','PFAF_ID','ORDER'],'OVERLAY_FIELDS_PREFIX':'','OUTPUT':'C:/Data/Floods/Germany/basin_intersections/DERP_RW_H_4326_hybas_intersections.geojson','GRID_SIZE':None})
 
 # exit QGIS application
 qgs.exitQgis()
