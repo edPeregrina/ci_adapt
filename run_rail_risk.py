@@ -21,6 +21,7 @@ import pathlib
 
 ### source:  country_infrastructure_hazard() function Elco.
 from from_elco import damagescanner_rail_track as ds
+import pickle
 
 #define paths
 p = Path('..')
@@ -84,71 +85,76 @@ collect_output = {}
 
 # for single_footprint in tqdm(hazard_data_list,total=len(hazard_data_list)):
 for i,single_footprint in enumerate(hazard_data_list):
-#single_footprint = hazard_data_list[0] #tqdm(hazard_data_list,total=len(hazard_data_list)):
-    hazard_name = single_footprint.parts[-1].split('.')[0]
-    print(f'Reading hazard map {i+1} of {len(hazard_data_list)}: {hazard_name}')
+    try:
+        hazard_name = single_footprint.parts[-1].split('.')[0]
+        print(f'Reading hazard map {i+1} of {len(hazard_data_list)}: {hazard_name}')
 
-    # load hazard map
-    if hazard_type in ['pluvial','fluvial']:
-        hazard_map = ds.read_flood_map(single_footprint)
-    else: 
-        print(f'{hazard_type} not implemented yet') 
-        exit   
-    # convert hazard data to epsg 3857
-    if '.shp' or '.geojson' in str(hazard_map):
-        hazard_map=gpd.read_file(hazard_map).to_crs(3857)[['w_depth_l','w_depth_u','geometry']]
-    else:
-        hazard_map = gpd.GeoDataFrame(hazard_map).set_crs(4326).to_crs(3857)
-                    
-    # make any invalid geometries valid: #time and maybe move to utility
-    # print('Verifying validity of hazard footprint geometries')
-    # hazard_map.geometry = hazard_map.apply(lambda row: make_valid(row.geometry) if not row.geometry.is_valid else row.geometry, axis=1) 
+        # load hazard map
+        if hazard_type in ['pluvial','fluvial']:
+            hazard_map = ds.read_flood_map(single_footprint)
+        else: 
+            print(f'{hazard_type} not implemented yet') 
+            exit   
+        # convert hazard data to epsg 3857
+        if '.shp' or '.geojson' in str(hazard_map):
+            hazard_map=gpd.read_file(hazard_map).to_crs(3857)[['w_depth_l','w_depth_u','geometry']]
+        else:
+            hazard_map = gpd.GeoDataFrame(hazard_map).set_crs(4326).to_crs(3857)
+                        
+        # make any invalid geometries valid: #time and maybe move to utility
+        # print('Verifying validity of hazard footprint geometries')
+        # hazard_map.geometry = hazard_map.apply(lambda row: make_valid(row.geometry) if not row.geometry.is_valid else row.geometry, axis=1) 
 
-    intersected_assets=ds.overlay_hazard_assets(hazard_map,assets)
+        intersected_assets=ds.overlay_hazard_assets(hazard_map,assets)
 
-    # overlay assets:
-    overlay_assets = pd.DataFrame(intersected_assets.T,columns=['asset','hazard_point'])
-    overlay_assets.tail(n=30)
+        # overlay assets:
+        overlay_assets = pd.DataFrame(intersected_assets.T,columns=['asset','hazard_point'])
+        overlay_assets.tail(n=30)
 
-    #[Q2 - Kees] - should we use the upper or lower bound for flooding depth? 
-    # convert dataframe to numpy array
-    # considering upper and lower bounds
-    hazard_numpified_u = hazard_map.drop('w_depth_l', axis=1).to_numpy() 
-    hazard_numpified_l = hazard_map.drop('w_depth_u', axis=1).to_numpy()
-    hazard_numpified_list=[hazard_numpified_l, hazard_numpified_u] 
+        #[Q2 - Kees] - should we use the upper or lower bound for flooding depth? 
+        # convert dataframe to numpy array
+        # considering upper and lower bounds
+        hazard_numpified_u = hazard_map.drop('w_depth_l', axis=1).to_numpy() 
+        hazard_numpified_l = hazard_map.drop('w_depth_u', axis=1).to_numpy()
+        hazard_numpified_list=[hazard_numpified_l, hazard_numpified_u] 
 
 
-    # maxdam_types = {} #TODO use or remove?
+        # maxdam_types = {} #TODO use or remove?
 
-    for infra_curve in infra_curves:
-        maxdams_filt=maxdamxx[maxdamxx['ID number']==infra_curve[0]]['Amount']
-        if not infra_curve[0] in curve_types[infra_type]:continue
-        # get curves
-        curve = infra_curves[infra_curve[0]]
-        hazard_intensity = curve.index.values
-        fragility_values = (np.nan_to_num(curve.values,nan=(np.nanmax(curve.values)))).flatten()       
-        collect_inb = {}
-        for asset in tqdm(overlay_assets.groupby('asset'),total=len(overlay_assets.asset.unique())): #group asset items for different hazard points per asset and get total number of unique assets
-            try:
-                asset_type = type_dict[asset[0]]
-            except KeyError: 
-                print(f'Passed asset {asset[0]}')
-                continue
-            if not infra_curve[0] in curve_types[asset_type]: 
-                collect_inb[asset[0]] = 0
-                print(f'Asset {asset[0]}: No vulnerability data found')
+        for infra_curve in infra_curves:
+            maxdams_filt=maxdamxx[maxdamxx['ID number']==infra_curve[0]]['Amount']
+            if not infra_curve[0] in curve_types[infra_type]:continue
+            # get curves
+            curve = infra_curves[infra_curve[0]]
+            hazard_intensity = curve.index.values
+            fragility_values = (np.nan_to_num(curve.values,nan=(np.nanmax(curve.values)))).flatten()       
+            collect_inb = {}
+            for asset in tqdm(overlay_assets.groupby('asset'),total=len(overlay_assets.asset.unique())): #group asset items for different hazard points per asset and get total number of unique assets
+                try:
+                    asset_type = type_dict[asset[0]]
+                except KeyError: 
+                    print(f'Passed asset {asset[0]}')
+                    continue
+                if not infra_curve[0] in curve_types[asset_type]: 
+                    collect_inb[asset[0]] = 0
+                    print(f'Asset {asset[0]}: No vulnerability data found')
 
-            if np.max(fragility_values) == 0:
-                collect_inb[asset[0]] = 0  
-                print(f'Asset {asset[0]}: Fragility = 0')
-            else:
-                asset_geom = geom_dict[asset[0]]
-                                
-                #collect_inb[asset[0]] = get_damage_per_asset(asset,hazard_numpified_l,asset_geom,hazard_intensity,fragility_values,maxdams_filt)
-                collect_inb[asset[0]] = tuple(ds.get_damage_per_asset(asset,h_numpified,asset_geom,hazard_intensity,fragility_values,maxdams_filt)[0] for h_numpified in hazard_numpified_list)
-        #print(collect_inb)
-        collect_output = pd.DataFrame.from_dict(collect_inb, orient='index')
+                if np.max(fragility_values) == 0:
+                    collect_inb[asset[0]] = 0  
+                    print(f'Asset {asset[0]}: Fragility = 0')
+                else:
+                    asset_geom = geom_dict[asset[0]]
+                                    
+                    #collect_inb[asset[0]] = get_damage_per_asset(asset,hazard_numpified_l,asset_geom,hazard_intensity,fragility_values,maxdams_filt)
+                    collect_inb[asset[0]] = tuple(ds.get_damage_per_asset(asset,h_numpified,asset_geom,hazard_intensity,fragility_values,maxdams_filt)[0] for h_numpified in hazard_numpified_list)
+            #print(collect_inb)
+            collect_output = pd.DataFrame.from_dict(collect_inb, orient='index')
+    except: 
+        print(f'Error! in {hazard_map}')
+        continue
 #break # remove break after testing
+        
+
     
 collect_output
 collect_output[('flood_DERP_RW_H_4326_2080411370', 'F8.1')]
@@ -189,3 +195,56 @@ for hazard_map, (lower_bound, upper_bound) in summed_output.items():
 
 # Create the DataFrame from the new dictionary
 aggregated_df = pd.DataFrame.from_dict(aggregated_output, orient='index', columns=['Total Damage Lower Bound', 'Total Damage Upper Bound'])
+
+
+"""
+Return period definitions:
+_H_=10-25y 
+_M_=100y
+_L_=200y (or more, check report)
+"""
+#   define dictionary to relate water depth classes to water depths
+return_period_dict={}
+return_period_dict['DERP']={
+    '_H_': 10,
+    '_M_': 100,
+    '_L_': 200
+}
+
+# Add the return period column to aggregated_df
+aggregated_df['Return Period'] = [return_period_dict['DERP'][index] for index in aggregated_df.index]
+
+# Print the updated aggregated_df
+print(aggregated_df)
+# Calculate the expected annual damages (EAD)
+
+# Sort the DataFrame by return period
+aggregated_df = aggregated_df.sort_values('Return Period', ascending=True)
+
+# Calculate the probability of each return period
+aggregated_df['Probability'] = 1 / aggregated_df['Return Period']
+probabilities=aggregated_df['Probability']
+dmgs=[]
+for i in range(len(probabilities)):
+    try:
+        ead_l=0.5*((probabilities.iloc[i]-probabilities.iloc[i+1])*(aggregated_df['Total Damage Lower Bound'].iloc[i]+aggregated_df['Total Damage Lower Bound'].iloc[i+1]))
+        ead_u=0.5*((probabilities.iloc[i]-probabilities.iloc[i+1])*(aggregated_df['Total Damage Upper Bound'].iloc[i]+aggregated_df['Total Damage Upper Bound'].iloc[i+1]))
+        dmgs.append((ead_l, ead_u))
+    except: pass
+
+ead_lower=0
+ead_upper=0
+for (ead_l, ead_u) in dmgs:
+    ead_lower+=ead_l
+    ead_upper+=ead_u
+
+ead=(ead_lower, ead_upper)
+# Save all the current active variables to a file
+filename_out= r'C:\Data\output\flood_DERP_EAD.pkl'
+with open(filename_out, 'wb') as file:
+    pickle.dump(locals(), file)
+
+
+# Load the local variables from the file
+with open(filename_out, 'rb') as f:
+    local_vars = pickle.load(f)
