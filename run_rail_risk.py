@@ -7,6 +7,8 @@ from shapely.validation import make_valid
 from tqdm import tqdm
 from pathlib import Path
 import pathlib
+import pickle
+import datetime
 
 ## for large data import from OSM:
 # import osm_flex.download as dl
@@ -21,7 +23,9 @@ import pathlib
 
 ### source:  country_infrastructure_hazard() function Elco.
 from from_elco import damagescanner_rail_track as ds
-import pickle
+# Get the current timestamp
+timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 
 #define paths
 p = Path('..')
@@ -87,7 +91,8 @@ collect_output = {}
 for i,single_footprint in enumerate(hazard_data_list):
     try:
         hazard_name = single_footprint.parts[-1].split('.')[0]
-        print(f'Reading hazard map {i+1} of {len(hazard_data_list)}: {hazard_name}')
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f'{timestamp} - Reading hazard map {i+1} of {len(hazard_data_list)}: {hazard_name}')
 
         # load hazard map
         if hazard_type in ['pluvial','fluvial']:
@@ -104,12 +109,12 @@ for i,single_footprint in enumerate(hazard_data_list):
         # make any invalid geometries valid: #time and maybe move to utility
         # print('Verifying validity of hazard footprint geometries')
         # hazard_map.geometry = hazard_map.apply(lambda row: make_valid(row.geometry) if not row.geometry.is_valid else row.geometry, axis=1) 
-
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f'{timestamp} - Overlaying hazard map with assets')
         intersected_assets=ds.overlay_hazard_assets(hazard_map,assets)
 
         # overlay assets:
         overlay_assets = pd.DataFrame(intersected_assets.T,columns=['asset','hazard_point'])
-        overlay_assets.tail(n=30)
 
         #[Q2 - Kees] - should we use the upper or lower bound for flooding depth? 
         # convert dataframe to numpy array
@@ -154,11 +159,6 @@ for i,single_footprint in enumerate(hazard_data_list):
         continue
 #break # remove break after testing
         
-
-    
-collect_output
-collect_output[('flood_DERP_RW_H_4326_2080411370', 'F8.1')]
-
 #subplots_asset_hazard(assets,hazard_map)
 
 # Initialize a new dictionary to hold the summed values
@@ -196,16 +196,15 @@ for hazard_map, (lower_bound, upper_bound) in summed_output.items():
 # Create the DataFrame from the new dictionary
 aggregated_df = pd.DataFrame.from_dict(aggregated_output, orient='index', columns=['Total Damage Lower Bound', 'Total Damage Upper Bound'])
 
-
 """
 Return period definitions:
 _H_=10-25y 
 _M_=100y
 _L_=200y (or more, check report)
 """
-#   define dictionary to relate water depth classes to water depths
-return_period_dict={}
-return_period_dict['DERP']={
+# Define dictionary to relate water depth classes to water depths
+return_period_dict = {}
+return_period_dict['DERP'] = {
     '_H_': 10,
     '_M_': 100,
     '_L_': 200
@@ -216,6 +215,7 @@ aggregated_df['Return Period'] = [return_period_dict['DERP'][index] for index in
 
 # Print the updated aggregated_df
 print(aggregated_df)
+
 # Calculate the expected annual damages (EAD)
 
 # Sort the DataFrame by return period
@@ -223,15 +223,36 @@ aggregated_df = aggregated_df.sort_values('Return Period', ascending=True)
 
 # Calculate the probability of each return period
 aggregated_df['Probability'] = 1 / aggregated_df['Return Period']
-probabilities=aggregated_df['Probability']
-dmgs=[]
+probabilities = aggregated_df['Probability']
+dmgs = []
 for i in range(len(probabilities)):
     try:
-        ead_l=0.5*((probabilities.iloc[i]-probabilities.iloc[i+1])*(aggregated_df['Total Damage Lower Bound'].iloc[i]+aggregated_df['Total Damage Lower Bound'].iloc[i+1]))
-        ead_u=0.5*((probabilities.iloc[i]-probabilities.iloc[i+1])*(aggregated_df['Total Damage Upper Bound'].iloc[i]+aggregated_df['Total Damage Upper Bound'].iloc[i+1]))
+        ead_l = 0.5 * ((probabilities.iloc[i] - probabilities.iloc[i + 1]) * (
+                    aggregated_df['Total Damage Lower Bound'].iloc[i] + aggregated_df['Total Damage Lower Bound'].iloc[
+                i + 1]))
+        ead_u = 0.5 * ((probabilities.iloc[i] - probabilities.iloc[i + 1]) * (
+                    aggregated_df['Total Damage Upper Bound'].iloc[i] + aggregated_df['Total Damage Upper Bound'].iloc[
+                i + 1]))
         dmgs.append((ead_l, ead_u))
-    except: pass
+    except:
+        pass
 
+ead_lower = 0
+ead_upper = 0
+for (ead_l, ead_u) in dmgs:
+    ead_lower += ead_l
+    ead_upper += ead_u
+
+ead = (ead_lower, ead_upper)
+
+# Save all the current active variables to a file
+filename_out = r'C:\Data\output\flood_DERP_EAD.pkl'
+with open(filename_out, 'wb') as file:
+    pickle.dump(locals(), file)
+
+# Load the local variables from the file
+with open(filename_out, 'rb') as f:
+    local_vars = pickle.load(f)
 ead_lower=0
 ead_upper=0
 for (ead_l, ead_u) in dmgs:
