@@ -1,56 +1,110 @@
-import geopandas as gpd
-from shapely import Point
+import pickle
+from from_elco import damagescanner_rail_track as ds
 
-class GSNetwork:
-    def __init__(self,gdf_sources,gdf_sinks,buffer=0) -> None:
-        self.gdf_sources=gdf_sources
-        self.gdf_sinks=gdf_sinks
-        self.bbox=create_bounding_box(gdf_sinks,gdf_sources,buffer)
+def pickle_overlay_hazard(overlay_assets, hazard_numpified, damage_curve='8.1'):
+    with open('overlay_assets.pkl', 'wb') as f:
+        pickle.dump(overlay_assets, f)
+    with open('numpified_hazard.pkl', 'wb') as f:
+        pickle.dump(hazard_numpified, f)
+    with open('damage_curve.pkl', 'wb') as f:
+        pickle.dump(damage_curve, f)
 
-    def retrieve_demand_sinks(gdf_sources):
+
+## Check if the pickle files exist, load pickle and move to next file in the list if they do
+# if Path(hazard_numpified_path).is_file() and Path(overlay_path).is_file():
+#     print('Flood maps found in pickle files will be loaded')
+#     # If they do, load the data from the pickle files
+#     with open(hazard_numpified_path, 'rb') as f:
+#         hazard_numpified_list = pickle.load(f)
+#     with open(overlay_path, 'rb') as f:
+#         overlay_assets = pickle.load(f)                
+#     continue
+
+# else: pass
+
+
+
+
+
+# import geopandas as gpd
+# from shapely import Point
+
+# class GSNetwork:
+#     def __init__(self,gdf_sources,gdf_sinks,buffer=0) -> None:
+#         self.gdf_sources=gdf_sources
+#         self.gdf_sinks=gdf_sinks
+#         self.bbox=create_bounding_box(gdf_sinks,gdf_sources,buffer)
+
+#     def retrieve_demand_sinks(gdf_sources):
+
+# def create_bounding_box(gdf1,gdf2, buffer=0): #TODO MOVE TO UTILITIES
+#         min_x = min(gdf1.total_bounds[0], gdf2.total_bounds[0]) - buffer
+#         min_y = min(gdf1.total_bounds[1], gdf2.total_bounds[1]) - buffer
+#         max_x = max(gdf1.total_bounds[2], gdf2.total_bounds[2]) + buffer
+#         max_y = max(gdf1.total_bounds[3], gdf2.total_bounds[3]) + buffer
+#         return (min_x, min_y, max_x, max_y)
+
+
+# # Example GeoDataFrame s
+# data1 = {'geometry': [Point(10, 30), Point(20, 25), Point(15, 35), Point(25, 41)]}
+# data2 = {'geometry': [Point(9, 30), Point(20, 25), Point(15, 35), Point(25, 40)]}
+# gdf_sources = gpd.GeoDataFrame(data1, geometry='geometry')
+# gdf_sinks = gpd.GeoDataFrame(data2, geometry='geometry')
+
+# # Example usage
+# gs_nw_bbox = GSNetwork(gdf_sources,gdf_sinks,buffer=5)
+# print(gs_nw_bbox.bbox)
+
 
 
 
     
-
-def create_bounding_box(gdf1,gdf2, buffer=0): #TODO MOVE TO UTILITIES
-        min_x = min(gdf1.total_bounds[0], gdf2.total_bounds[0]) - buffer
-        min_y = min(gdf1.total_bounds[1], gdf2.total_bounds[1]) - buffer
-        max_x = max(gdf1.total_bounds[2], gdf2.total_bounds[2]) + buffer
-        max_y = max(gdf1.total_bounds[3], gdf2.total_bounds[3]) + buffer
-        return (min_x, min_y, max_x, max_y)
-
-
-# Example GeoDataFrame s
-data1 = {'geometry': [Point(10, 30), Point(20, 25), Point(15, 35), Point(25, 41)]}
-data2 = {'geometry': [Point(9, 30), Point(20, 25), Point(15, 35), Point(25, 40)]}
-gdf_sources = gpd.GeoDataFrame(data1, geometry='geometry')
-gdf_sinks = gpd.GeoDataFrame(data2, geometry='geometry')
-
-# Example usage
-gs_nw_bbox = GSNetwork(gdf_sources,gdf_sinks,buffer=5)
-print(gs_nw_bbox.bbox)
-
-
-
-    def retrieve_demand_sinks(gdf_sinks):
-        for e in gdf_sinks try:
-            if e is a list: find geometries and make gdf_sinks
-            elif e is a gdf: pass
-
-            if within bbox: pass
-            else: trigger warning and specific search
-
-        
-            if row.geometry in [Point, Line]: repeat search with 'area' keyword
-                
-            elif row.geometry in [Polygon, MultiPoligon]: 
-                return 'lol'
-        
-
-    
         
         
+
+
+
+# def calculate_ead(years_dict):
+#     ead_results = {}
+
+#     for year, damages in years_dict.items():
+#         # Create a DataFrame for the damages
+#         aggregated_df = pd.DataFrame({
+#             'Total Damage Lower Bound': damages,
+#             'Total Damage Upper Bound': damages,
+#             'Return Period': [10, 100, 200]  # Corresponding to '_H_', '_M_', '_L_'
+#         })
+
+#         # Sort the DataFrame by return period
+#         aggregated_df = aggregated_df.sort_values('Return Period', ascending=True)
+
+#         # Calculate the probability of each return period
+#         aggregated_df['Probability'] = 1 / aggregated_df['Return Period']
+#         probabilities = aggregated_df['Probability']
+
+#         ead_lower = 0
+#         ead_upper = 0
+#         for i in range(len(probabilities) - 1):
+#             ead_l = 0.5 * ((probabilities.iloc[i] - probabilities.iloc[i + 1]) * (
+#                         aggregated_df['Total Damage Lower Bound'].iloc[i] + aggregated_df['Total Damage Lower Bound'].iloc[
+#                     i + 1]))
+#             ead_u = 0.5 * ((probabilities.iloc[i] - probabilities.iloc[i + 1]) * (
+#                         aggregated_df['Total Damage Upper Bound'].iloc[i] + aggregated_df['Total Damage Upper Bound'].iloc[
+#                     i + 1]))
+#             ead_lower += ead_l
+#             ead_upper += ead_u
+
+#         ead_results[year] = (ead_lower, ead_upper)
+
+#     return ead_results
+
+
+
+
+
+
+
+
                 
 
 
