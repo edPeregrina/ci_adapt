@@ -1,14 +1,14 @@
 import geopandas as gpd
 import pandas as pd
 import numpy as np
-from shapely.validation import make_valid
+# from shapely.validation import make_valid # only needed to make invalid geometries valid
 from shapely import length, intersects, intersection
 from tqdm import tqdm
 from pathlib import Path
 import pathlib
 import pickle
 import datetime
-from from_elco import damagescanner_rail_track as ds
+from direct_damages import damagescanner_rail_track as ds
 
 ### source:  country_infrastructure_hazard() function Elco.
 # define the paths to the data
@@ -109,7 +109,7 @@ for i,single_footprint in enumerate(hazard_data_list):
 
         # pickle asset overlays and hazard numpified data for use in adaptation
         overlay_path = f'{interim_data_path}/overlay_assets_{hazard_name}.pkl'
-        
+
         with open(overlay_path, 'wb') as f:
             pickle.dump(overlay_assets, f)
         hazard_numpified_path = f'{interim_data_path}/hazard_numpified_{hazard_name}.pkl'    
