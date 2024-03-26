@@ -71,7 +71,7 @@ class Handler:
                 pickle.dump(collect_output, f)
         else: print('No output collected')
 
-    def calculate_ead(self):
+    def calculate_ead(self, dynamic_RPs=False):
         # calculate the expected annual damages (EAD)
         summed_output = {}
         # iterate over the items in the collect_output dictionary
@@ -84,9 +84,6 @@ class Handler:
                 summed_output[hazard_map][0] += sum(value[0] for value in asset_dict.values())
                 summed_output[hazard_map][1] += sum(value[1] for value in asset_dict.values())
 
-        # print the summed_output dictionary
-        print(summed_output)
-        summary_df=pd.DataFrame.from_dict(summed_output,orient='index',columns=['Total Damage Lower Bound','Total Damage Upper Bound'])
 
         # initialize a new dictionary to hold the aggregated values
         aggregated_output = {'_H_': [0, 0], '_M_': [0, 0], '_L_': [0, 0]}
@@ -233,6 +230,12 @@ def process_hazard_data(single_footprint, hazard_type, assets, interim_data_path
 
     return collect_inb
 
+def retrieve_max_intensity_by_asset(asset, overlay_assets, hazard_numpified_list):
+    # retrieve the hazard points that intersect with the asset
+    max_intensity = hazard_numpified_list[0][overlay_assets.loc[overlay_assets['asset'] == asset].hazard_point.values] 
+    # get the hazard intensity values for the hazard points
+    return max_intensity[:,0]
+
 def run_damage_reduction_by_asset(geom_dict, overlay_assets, hazard_numpified_list, changed_assets, hazard_intensity, fragility_values, maxdams_filt):
     # initialize dictionaries to hold the intermediate results
     collect_inb_bl ={}
@@ -284,18 +287,18 @@ class Assets:
         self.assets = self.assets.rename(columns={'railway' : 'asset'})
 
         # Uncomment the following lines if you want to drop passenger lines and light rails
-        self.assets = self.assets.loc[~(self.assets['railway:traffic_mode'] == 'passenger')]
-        self.assets = self.assets.loc[~(self.assets['asset'] == 'light_rail')]
+        #self.assets = self.assets.loc[~(self.assets['railway:traffic_mode'] == 'passenger')]
+        #self.assets = self.assets.loc[~(self.assets['asset'] == 'light_rail')]
 
         # Uncomment the following lines if you want to drop bridges and tunnels
-        self.assets = self.assets.loc[~(self.assets['bridge'].isin(['yes']))]
-        self.assets = self.assets.loc[~(self.assets['tunnel'].isin(['yes']))]
+        #self.assets = self.assets.loc[~(self.assets['bridge'].isin(['yes']))]
+        #self.assets = self.assets.loc[~(self.assets['tunnel'].isin(['yes']))]
 
         self.buffered_assets = ds.buffer_assets(self.assets)
         self.geom_dict = self.assets['geometry'].to_dict()
         self.type_dict = self.assets['asset'].to_dict()
 
-#TODO: ADD EAD
+
 H=Handler(config_file='config_ci_adapt.ini')
 H.read_vul_maxdam()
 H.read_hazard_data()
@@ -304,18 +307,24 @@ H.run_direct_damage()
 pd.DataFrame.from_dict(H.collect_output).to_csv(H.interim_data_path / 'sample_collected_run.csv')
 H.ead=H.calculate_ead()
 
-
-
+# TESTING ADAPTATION
 # Create a variable changed_assets
-changed_assets = H.assets.assets.loc[H.assets.assets.index.isin([105426, 110740, 118116])].copy() # testing with a few assets
+changed_asset_list = [105426, 110740, 118116] # testing with a few assets
 
-# Add new columns fragility_mod and haz_mod
-changed_assets['fragility_mod'] = [0.3, 0.5, 0.8] #fraction (1 = no reduction, 0 = invulnerable asset) DUMMY DATA FOR TESTING
-changed_assets['haz_mod'] = 0.5 # meters (0 = no reduction in hazard intensity, 0.5 = 0.5 meter reduction in hazard intensity) DUMMY DATA FOR TESTING consider raising railway 0.5 meters
 with open(H.interim_data_path / 'overlay_assets_flood_DERP_RW_L_4326_2080411370.pkl', 'rb') as f:
     overlay_assets = pickle.load(f)
 with open(H.interim_data_path / 'hazard_numpified_flood_DERP_RW_L_4326_2080411370.pkl', 'rb') as f:
     hazard_numpified_list = pickle.load(f)
+    
+max_intensity = []
+for asset_id in changed_asset_list:
+    max_intensity.append(retrieve_max_intensity_by_asset(asset_id, overlay_assets, hazard_numpified_list))
+
+changed_assets = H.assets.assets.loc[H.assets.assets.index.isin(changed_asset_list)].copy() # testing with a few assets
+# Add new columns fragility_mod and haz_mod
+changed_assets['fragility_mod'] = 1 #[0.3, 0.5, 0.8] #fraction (1 = no reduction, 0 = invulnerable asset) DUMMY DATA FOR TESTING
+changed_assets['haz_mod'] = [np.max(x)+1 for x in max_intensity] #meters (0 = no reduction in hazard intensity, 0.5 = 0.5 meter reduction in hazard intensity) DUMMY DATA FOR TESTING consider raising railway 0.5 meters
+
 
 hazard_intensity = H.infra_curves['F8.1'].index.values
 fragility_values = (np.nan_to_num(H.infra_curves['F8.1'].values,nan=(np.nanmax(H.infra_curves['F8.1'].values)))).flatten()
