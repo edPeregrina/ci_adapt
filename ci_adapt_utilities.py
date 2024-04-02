@@ -127,7 +127,7 @@ def run_damage_reduction_by_asset(geom_dict, overlay_assets, hazard_numpified_li
             if asset_geom.geom_type == 'LineString':
                 affected_asset_length = length(intersection(get_hazard_points[:,1],asset_geom)) # get the length of exposed meters per hazard cell
 
-        adaptation_cost[asset[0]]=np.sum(h_mod*affected_asset_length*56454) # calculate the adaptation cost in EUR #TODO: include cost per meter as a variable
+        adaptation_cost[asset[0]]=np.sum(h_mod*affected_asset_length*15500)+np.sum((1-frag_mod)*affected_asset_length*56464) # calculate the adaptation cost in EUR #TODO: include cost per meter as a variable
     print(f'Assets with no change: {unchanged_assets}')
     return collect_inb_bl, collect_inb_adapt, adaptation_cost
 

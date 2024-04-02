@@ -10,19 +10,19 @@ from ci_adapt_classes import *
 # configure handler with ini file. ini file can be created with config.py
 H=Handler(config_file='config_ci_adapt.ini')
 # read vulnerability and maximum damage data
-H.read_vul_maxdam()
+H.read_vul_maxdam() #REFERENCE: Nirandjan, S., et al.: Review article: Physical Vulnerability Database for Critical Infrastructure Multi-Hazard Risk Assessments – A systematic review and data collection, Nat. Hazards Earth Syst. Sci. Discuss. [preprint], https://doi.org/10.5194/nhess-2023-208, in review, 2024.
 
 # read hazard data
-H.read_hazard_data()
+H.read_hazard_data() #REFERENCE: Rauthe M, et al. (2020): Climate impact analysis of the federal transport system in the context of floods: Final report of the key topic flood risks (SP-103) in topic area 1 of the BMVI expert network. 136 pages. DOI: 10.5675/ExpNRM2020.2020.04
 
 # read exposure data
-H.read_asset_data()
+H.read_asset_data() #REFERENCE: OSM, OpenStreetMap contributors (2024) / osm-flex
 
 # calculate direct damage by asset
 # currently data with 3 baseline return periods: H=RP10, M=RP100, L=RP200
 # TODO: for DEXX_RP, return period should be input or taken from dictionary/file names
 # TODO: verify cost of damage and adaptation regarding double rail or single rail, divide /2 if double rail? 
-H.run_direct_damage()
+H.run_direct_damage() #REFERENCE: Koks. E.E. (2022). DamageScanner: Python tool for natural hazard damage assessments. Zenodo. http://doi.org/10.5281/zenodo.2551015
 pd.DataFrame.from_dict(H.collect_output).to_csv(H.interim_data_path / 'sample_collected_run.csv')
 
 # calculate EAD by year (timestep)
@@ -49,8 +49,8 @@ for asset_id in changed_asset_list:
 changed_assets = H.assets.assets.loc[H.assets.assets.index.isin(changed_asset_list)].copy() # testing with a few assets
 # add new columns fragility_mod and haz_mod
 # QUESTION: is fragility the correct name? maintaining ds nomenclature
-changed_assets['fragility_mod'] = 1 #[0.3, 0.5, 0.8] #fraction [example considering no reduction] (1 = no reduction, 0 = invulnerable asset) DUMMY DATA FOR TESTING
-changed_assets['haz_mod'] = [np.max(x)+1 for x in max_intensity] #meters [example adding wall of maximum flooding depth + 1 meter] (0 = no reduction in hazard intensity, 0.5 = 0.5 meter reduction in hazard intensity) DUMMY DATA FOR TESTING consider raising railway 0.5 meters
+changed_assets['fragility_mod'] = 0 #[0.3, 0.5, 0.8] #fraction [example considering no reduction] (1 = no reduction, 0 = invulnerable asset) DUMMY DATA FOR TESTING
+changed_assets['haz_mod'] = 0#[np.max(x)+1 for x in max_intensity] #meters [example adding wall of maximum flooding depth + 1 meter] (0 = no reduction in hazard intensity, 0.5 = 0.5 meter reduction in hazard intensity) DUMMY DATA FOR TESTING consider raising railway 0.5 meters
 
 # TODO: automate infrastructure curve deduction from dictionary keys, now running with curve F8.1
 hazard_intensity = H.infra_curves['F8.1'].index.values
