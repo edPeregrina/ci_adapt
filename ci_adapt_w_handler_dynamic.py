@@ -48,10 +48,11 @@ for asset_id in changed_asset_list:
 # extract the assets that will be adapted
 changed_assets = H.assets.assets.loc[H.assets.assets.index.isin(changed_asset_list)].copy() # testing with a few assets
 # add new columns fragility_mod and haz_mod
-changed_assets['fragility_mod'] = 1 #[0.3, 0.5, 0.8] #fraction (1 = no reduction, 0 = invulnerable asset) DUMMY DATA FOR TESTING
-changed_assets['haz_mod'] = [np.max(x)+1 for x in max_intensity] #meters (0 = no reduction in hazard intensity, 0.5 = 0.5 meter reduction in hazard intensity) DUMMY DATA FOR TESTING consider raising railway 0.5 meters
+# QUESTION: is fragility the correct name? maintaining ds nomenclature
+changed_assets['fragility_mod'] = 1 #[0.3, 0.5, 0.8] #fraction [example considering no reduction] (1 = no reduction, 0 = invulnerable asset) DUMMY DATA FOR TESTING
+changed_assets['haz_mod'] = [np.max(x)+1 for x in max_intensity] #meters [example adding wall of maximum flooding depth + 1 meter] (0 = no reduction in hazard intensity, 0.5 = 0.5 meter reduction in hazard intensity) DUMMY DATA FOR TESTING consider raising railway 0.5 meters
 
-# TODO: automate infrastructure curve deduction from dictionary keys
+# TODO: automate infrastructure curve deduction from dictionary keys, now running with curve F8.1
 hazard_intensity = H.infra_curves['F8.1'].index.values
 fragility_values = (np.nan_to_num(H.infra_curves['F8.1'].values,nan=(np.nanmax(H.infra_curves['F8.1'].values)))).flatten()
 maxdams_filt=H.max_damage_tables[H.max_damage_tables['ID number']=='F8.1']['Amount']
