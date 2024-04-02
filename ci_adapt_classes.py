@@ -111,7 +111,7 @@ class Handler:
         increase_factor = { #1.2 to 9.0, Q3 Kees
             '_H_': (1.2+9.0)/2,
             '_M_': (1.2+9.0)/2,
-            '_L_': (1.2+9.0)/2 #average of the range (1.2 to 9.0
+            '_L_': (1.2+9.0)/2 #average of the range (1.2 to 9.0) based on change since 1900
         }
 
         num_years = 100
