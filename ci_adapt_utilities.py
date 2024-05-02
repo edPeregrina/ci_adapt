@@ -85,9 +85,8 @@ def process_hazard_data(single_footprint, hazard_type, assets, interim_data_path
     return collect_inb
 
 def retrieve_max_intensity_by_asset(asset, overlay_assets, hazard_numpified_list):
-    # retrieve the hazard points that intersect with the asset
-    max_intensity = hazard_numpified_list[0][overlay_assets.loc[overlay_assets['asset'] == asset].hazard_point.values] 
-    # get the hazard intensity values for the hazard points
+    # retrieve the hazard points that intersect with the asset, get upper bound of the hazard intensity
+    max_intensity = hazard_numpified_list[-1][overlay_assets.loc[overlay_assets['asset'] == asset].hazard_point.values] 
     return max_intensity[:,0]
 
 def run_damage_reduction_by_asset(geom_dict, overlay_assets, hazard_numpified_list, changed_assets, hazard_intensity, fragility_values, maxdams_filt):
@@ -96,13 +95,14 @@ def run_damage_reduction_by_asset(geom_dict, overlay_assets, hazard_numpified_li
     collect_inb_adapt = {}
     adaptation_cost={}
     unchanged_assets = []
+    timestamp=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f'{timestamp} - Calculating adapted damages for assets...')
 
     # interate over all unique assets and skip those that are not changed
-    for asset in overlay_assets.groupby('asset'): #asset is a tuple where asset[0] is the asset index or identifier and asset[1] is the asset-specific information
+    for asset in tqdm(overlay_assets.groupby('asset'),total=len(overlay_assets.asset.unique())): #asset is a tuple where asset[0] is the asset index or identifier and asset[1] is the asset-specific information
         if asset[0] not in changed_assets.index:
             unchanged_assets.append(asset[0])
             continue
-        print(f'Damage reduction for asset: {asset[0]}')
 
         # retrieve asset geometry
         asset_geom = geom_dict[asset[0]]
@@ -128,7 +128,7 @@ def run_damage_reduction_by_asset(geom_dict, overlay_assets, hazard_numpified_li
                 affected_asset_length = length(intersection(get_hazard_points[:,1],asset_geom)) # get the length of exposed meters per hazard cell
 
         adaptation_cost[asset[0]]=np.sum(h_mod*affected_asset_length*15500)+np.sum((1-frag_mod)*affected_asset_length*56464) # calculate the adaptation cost in EUR #TODO: include cost per meter as a variable
-    print(f'Assets with no change: {unchanged_assets}')
+    print(f'{len(unchanged_assets)} assets with no change.')
     return collect_inb_bl, collect_inb_adapt, adaptation_cost
 
 def calculate_dynamic_return_periods(return_period_dict, num_years, increase_factor):
