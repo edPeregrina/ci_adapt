@@ -135,9 +135,15 @@ def calculate_dynamic_return_periods(return_period_dict, num_years, increase_fac
     years = np.linspace(0, num_years, num_years + 1)
     return_periods = {}
     for category, rp in return_period_dict.items():
-        rp_new = rp / increase_factor[category]
-        rps = np.interp(years, [0, num_years], [rp, rp_new])
-        return_periods[category] = rps.tolist()
+        # rp_new = rp / increase_factor[category]
+        # rps = np.interp(years, [0, num_years], [rp, rp_new])        
+        #return_periods[category] = rps.tolist()        
+        freq = 1 / rp
+        freq_new = freq * increase_factor[category]
+        freqs = np.interp(years, [0, num_years], [freq, freq_new])
+        return_periods[category] = [1 / freq for freq in freqs]
+
+
 
     return return_periods
 
