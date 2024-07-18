@@ -79,7 +79,7 @@ def get_damage_per_asset(asset,hazard_numpified,asset_geom,hazard_intensity,frag
 def read_hazard_data(data_path,hazard_type,country='Germany',defended=False,subfolders=None):
 
     if hazard_type == 'fluvial' and defended == False:
-        hazard_data = data_path / 'Floods' / country / 'fluvial_undefended' / subfolders
+        hazard_data = data_path 
         #return [file for file in hazard_data.iterdir() if file.is_file() and file.suffix == '.shp']
         return [file for file in hazard_data.iterdir() if file.is_file() and file.suffix == '.geojson']
         #return list(hazard_data.iterdir())

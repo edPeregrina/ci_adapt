@@ -4,7 +4,7 @@ import pickle
 import geopandas as gpd
 from tqdm import tqdm
 import datetime
-from shapely import length, intersects, intersection
+from shapely import length, intersects, intersection, make_valid, is_valid
 from direct_damages import damagescanner_rail_track as ds
 
 
@@ -25,6 +25,9 @@ def process_hazard_data(single_footprint, hazard_type, assets, interim_data_path
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f'{timestamp} - Coarse overlay of hazard map with assets...')
+    
+    # make geometry valid
+    hazard_map['geometry'] = hazard_map['geometry'].make_valid() if not hazard_map['geometry'].is_valid.all() else hazard_map['geometry']
 
     # coarse overlay of hazard map with assets
     intersected_assets=ds.overlay_hazard_assets(hazard_map,assets)

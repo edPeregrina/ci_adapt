@@ -44,8 +44,8 @@ config['DEFAULT'] = {
     'country_name': 'Germany',
     'hazard_data_subfolders': 'raw_subsample/validated_geometries',
     #'asset_data': 'Exposure/raw_rail_track_study_area_simplify_test.geojson',
-    #'asset_data': 'Exposure/raw_rail_track_study_area_Rhine_Alpine_DEU.geojson',
-    'asset_data': 'Exposure/raw_rail_track_study_area_KOBLENZ_BONN.geojson',
+    'asset_data': 'Exposure/raw_rail_track_study_area_Rhine_Alpine_DEU.geojson',
+    #'asset_data': 'Exposure/raw_rail_track_study_area_KOBLENZ_BONN.geojson',
     'vulnerability_data': 'Vulnerability',
     'miraca_colors': str(miraca_colors)}
 
