@@ -92,7 +92,7 @@ def retrieve_max_intensity_by_asset(asset, overlay_assets, hazard_numpified_list
     max_intensity = hazard_numpified_list[-1][overlay_assets.loc[overlay_assets['asset'] == asset].hazard_point.values] 
     return max_intensity[:,0]
 
-def run_damage_reduction_by_asset(geom_dict, overlay_assets, hazard_numpified_list, changed_assets, hazard_intensity, fragility_values, maxdams_filt):
+def run_damage_reduction_by_asset(geom_dict, overlay_assets, hazard_numpified_list, changed_assets, hazard_intensity, fragility_values, maxdams_filt, reporting=True):
     # initialize dictionaries to hold the intermediate results
     collect_inb_bl ={}
     collect_inb_adapt = {}
@@ -132,6 +132,20 @@ def run_damage_reduction_by_asset(geom_dict, overlay_assets, hazard_numpified_li
 
         adaptation_cost[asset[0]]=np.sum(h_mod*affected_asset_length*15500)+np.sum((1-frag_mod)*affected_asset_length*56464) # calculate the adaptation cost in EUR #TODO: include cost per meter as a variable
     print(f'{len(unchanged_assets)} assets with no change.')
+
+        #reporting
+    if reporting==True:
+        for asset_id, baseline_damages in collect_inb_bl.items():
+            print(f'\nADAPTATION results for asset {asset_id}:')
+            print(f'Baseline damages for asset {asset_id}: {baseline_damages[0]:.2f} to {baseline_damages[1]:.2f} EUR')
+            print(f'Adapted damages for asset {asset_id}: {collect_inb_adapt[asset_id][0]:.2f} to {collect_inb_adapt[asset_id][1]:.2f} EUR')
+            delta = tuple(collect_inb_adapt[asset_id][i] - baseline_damages[i] for i in range(len(baseline_damages)))
+            # percent_change = tuple((100 * (delta[i] / baseline_damages[i])) for i in range(len(baseline_damages)))
+            percent_change = tuple((100 * (delta[i] / baseline_damages[i])) if baseline_damages[i] != 0 else 0 for i in range(len(baseline_damages)))
+            print(f'Change (Adapted-Baseline): {delta[0]:.2f} to {delta[1]:.2f} EUR, {percent_change}% change, at a cost of {adaptation_cost[asset_id]:.2f} EUR')
+
+
+
     return collect_inb_bl, collect_inb_adapt, adaptation_cost
 
 def calculate_dynamic_return_periods(return_period_dict, num_years, increase_factor):
