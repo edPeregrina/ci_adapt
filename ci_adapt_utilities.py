@@ -7,9 +7,38 @@ import datetime
 from shapely import length, intersects, intersection, make_valid, is_valid
 from direct_damages import damagescanner_rail_track as ds
 
+def process_asset_options(asset_options, map_rp_spec, rp_spec_priority):
+    map_rp_spec_index=rp_spec_priority.index(map_rp_spec)  
+    if 'bridge_design_rp' in asset_options.keys():
+        bridge_design_rp = asset_options['bridge_design_rp']
+        bridge_design_rp_index=rp_spec_priority.index(bridge_design_rp)
+        if bridge_design_rp_index <= map_rp_spec_index:
+            skip_bridge=True
+        else:
+            skip_bridge=False
+    if 'tunnel_design_rp' in asset_options.keys():
+        tunnel_design_rp = asset_options['tunnel_design_rp']
+        tunnel_design_rp_index=rp_spec_priority.index(tunnel_design_rp)
+        if tunnel_design_rp_index <= map_rp_spec_index:
+            skip_tunnel=True
+        else:
+            skip_tunnel=False
 
-def process_hazard_data(single_footprint, hazard_type, assets, interim_data_path, infra_curves, max_damage_tables, curve_types, infra_type, type_dict, geom_dict):
+    return skip_bridge, skip_tunnel
+
+def process_hazard_data(single_footprint, hazard_type, assets, interim_data_path, infra_curves, max_damage_tables, curve_types, infra_type, type_dict, geom_dict, asset_options=None, rp_spec_priority = None):
     hazard_name = single_footprint.parts[-1].split('.')[0]
+    map_rp_spec = hazard_name.split('_')[3]
+    print(asset_options)
+    print(rp_spec_priority)
+    if asset_options is not None and rp_spec_priority is not None:
+        print('checking asset options')
+        skip_bridge, skip_tunnel = process_asset_options(asset_options, map_rp_spec, rp_spec_priority)
+        print(f'Skipping bridges: {skip_bridge}, Skipping tunnels: {skip_tunnel}')
+    else:
+        skip_bridge=False
+        skip_tunnel=False
+
     # load hazard map
     if hazard_type in ['pluvial','fluvial']:
         hazard_map = ds.read_flood_map(single_footprint)
@@ -80,10 +109,16 @@ def process_hazard_data(single_footprint, hazard_type, assets, interim_data_path
                 collect_inb[asset[0]] = 0  
                 print(f'Asset {asset[0]}: Fragility = 0')
             else:
+                if assets.loc[asset[0]].bridge == 'yes' and skip_bridge==True:
+                    collect_inb[asset[0]] = (0, 0)
+                    continue
+                if assets.loc[asset[0]].tunnel == 'yes' and skip_tunnel==True:
+                    collect_inb[asset[0]] = (0, 0)
+                    continue
                 # retrieve asset geometry and do fine overlay
                 asset_geom = geom_dict[asset[0]]              
                 # get damage per asset in a single hazard map as a dictionary of asset IDs:damage tuples
-                collect_inb[asset[0], infra_curve[0]] = tuple(ds.get_damage_per_asset(asset,h_numpified,asset_geom,hazard_intensity,fragility_values,maxdams_filt)[0] for h_numpified in hazard_numpified_list)
+                collect_inb[asset[0]] = tuple(ds.get_damage_per_asset(asset,h_numpified,asset_geom,hazard_intensity,fragility_values,maxdams_filt)[0] for h_numpified in hazard_numpified_list)
 
     return collect_inb
 
@@ -92,12 +127,25 @@ def retrieve_max_intensity_by_asset(asset, overlay_assets, hazard_numpified_list
     max_intensity = hazard_numpified_list[-1][overlay_assets.loc[overlay_assets['asset'] == asset].hazard_point.values] 
     return max_intensity[:,0]
 
-def run_damage_reduction_by_asset(geom_dict, overlay_assets, hazard_numpified_list, changed_assets, hazard_intensity, fragility_values, maxdams_filt, reporting=True):
+def set_rp_priorities(return_period_dict):
+    # order the return periods from highest to lowest priority with None as lowest priority
+    rp_tuple = tuple([key.strip('_') for key in sorted(return_period_dict, key=return_period_dict.get, reverse=True) if key != 'None'] + [None])
+
+    return rp_tuple 
+
+def run_damage_reduction_by_asset(geom_dict, overlay_assets, hazard_numpified_list, collect_inb_bl, changed_assets, hazard_intensity, fragility_values, maxdams_filt, map_rp_spec = None, asset_options=None, rp_spec_priority = None, reporting=True):
     # initialize dictionaries to hold the intermediate results
-    collect_inb_bl ={}
     collect_inb_adapt = {}
     adaptation_cost={}
     unchanged_assets = []
+
+    if asset_options is not None and rp_spec_priority is not None and map_rp_spec is not None:
+        skip_bridge, skip_tunnel = process_asset_options(asset_options, map_rp_spec, rp_spec_priority)
+    else:
+        skip_bridge=False
+        skip_tunnel=False
+
+
     timestamp=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f'{timestamp} - Calculating adapted damages for assets...')
 
@@ -106,31 +154,61 @@ def run_damage_reduction_by_asset(geom_dict, overlay_assets, hazard_numpified_li
         if asset[0] not in changed_assets.index:
             unchanged_assets.append(asset[0])
             continue
+        if changed_assets.loc[asset[0]].bridge == 'yes' and skip_bridge==True:
+            collect_inb_adapt[asset[0]] = (0, 0)
+            continue
+        if changed_assets.loc[asset[0]].tunnel == 'yes' and skip_tunnel==True:
+            collect_inb_adapt[asset[0]] = (0, 0)
+            continue
 
         # retrieve asset geometry
         asset_geom = geom_dict[asset[0]]
 
         # calculate damages for the baseline conditions 
-        collect_inb_bl[asset[0]] = tuple(ds.get_damage_per_asset(asset,h_numpified,asset_geom,hazard_intensity,fragility_values,maxdams_filt)[0] for h_numpified in hazard_numpified_list)
-        
+        # collect_inb_bl[asset[0]] = tuple(ds.get_damage_per_asset(asset,h_numpified,asset_geom,hazard_intensity,fragility_values,maxdams_filt)[0] for h_numpified in hazard_numpified_list)
+
         # calculate damages for the adapted conditions
-        h_mod=changed_assets.loc[asset[0]].haz_mod #hazard modifier  (between 0 and the maximum hazard intensity)
-        hazard_numpified_list_mod = [np.array([[max(0.0, x[0] - h_mod), x[1]] for x in haz_numpified_bounds]) for haz_numpified_bounds in hazard_numpified_list]
-        frag_mod=changed_assets.loc[asset[0]].fragility_mod #fragility modifier (between 0 and the maximum fragility value, usually 1)
-
-        collect_inb_adapt[asset[0]] = tuple(ds.get_damage_per_asset(asset,h_numpified,asset_geom,hazard_intensity,fragility_values*frag_mod,maxdams_filt)[0] for h_numpified in hazard_numpified_list_mod)
-        
-        # calculate the adaptation cost
-        get_hazard_points = hazard_numpified_list_mod[0][asset[1]['hazard_point'].values] 
-        get_hazard_points[intersects(get_hazard_points[:,1],asset_geom)]
-
-        if len(get_hazard_points) == 0: # no overlay of asset with hazard
-            affected_asset_length=0
+        # - L1 adaptation
+        # check hazard-level adaptation and spec, if asset adaptation spec is better than the map spec, asset is not damaged
+        if changed_assets.loc[asset[0]].l1_adaptation is not None:
+            asset_adapt_spec_index=rp_spec_priority.index(changed_assets.loc[asset[0]]['l1_adaptation'])
+            map_rp_spec_index=rp_spec_priority.index(map_rp_spec)
+            if asset_adapt_spec_index <= map_rp_spec_index:
+                collect_inb_adapt[asset[0]] = (0, 0)
+                continue
+        # - L2 adaptation
+        # check asset-level adaptation, if None, asset is not modified
+        if changed_assets.loc[asset[0]].l2_adaptation_exp is None and changed_assets.loc[asset[0]].l2_adaptation_vul is None:
+            adaptation_cost[asset[0]]=0
+            collect_inb_adapt[asset[0]]=collect_inb_bl[asset[0]]
+            continue
+            
         else:
-            if asset_geom.geom_type == 'LineString':
-                affected_asset_length = length(intersection(get_hazard_points[:,1],asset_geom)) # get the length of exposed meters per hazard cell
+            if changed_assets.loc[asset[0]].l2_adaptation_exp is None:
+                h_mod=0
+            else:
+                h_mod=changed_assets.loc[asset[0]].l2_adaptation_exp #exposure modifier between 0 and the maximum hazard intensity
+            hazard_numpified_list_mod = [np.array([[max(0.0, x[0] - h_mod), x[1]] for x in haz_numpified_bounds]) for haz_numpified_bounds in hazard_numpified_list]
+            if changed_assets.loc[asset[0]].l2_adaptation_vul is None:
+                v_mod=1
+            else:
+                v_mod=changed_assets.loc[asset[0]].l2_adaptation_vul #vulnerability modifier between invulnerable (0) and fully vulnerable(1)
+            
+            # calculate the adaptation cost
+            get_hazard_points = hazard_numpified_list_mod[0][asset[1]['hazard_point'].values] 
+            get_hazard_points[intersects(get_hazard_points[:,1],asset_geom)]
+            if len(get_hazard_points) == 0: # no overlay of asset with hazard
+                affected_asset_length=0
+            else:
+                if asset_geom.geom_type == 'LineString':
+                    affected_asset_length = length(intersection(get_hazard_points[:,1],asset_geom)) # get the length of exposed meters per hazard cell
+             
+            adaptation_cost[asset[0]]=np.sum(h_mod*affected_asset_length*15500) # calculate the adaptation cost in EUR #TODO: include cost per meter as a variable
+            collect_inb_adapt[asset[0]] = tuple(ds.get_damage_per_asset(asset,h_numpified,asset_geom,hazard_intensity,fragility_values*v_mod,maxdams_filt)[0] for h_numpified in hazard_numpified_list_mod)
+        
 
-        adaptation_cost[asset[0]]=np.sum(h_mod*affected_asset_length*15500)+np.sum((1-frag_mod)*affected_asset_length*56464) # calculate the adaptation cost in EUR #TODO: include cost per meter as a variable
+        
+
     print(f'{len(unchanged_assets)} assets with no change.')
 
         #reporting
