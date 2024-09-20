@@ -42,7 +42,7 @@ def buffer_assets(assets,buffer_size=0.00083):
     return assets
 
 
-def get_damage_per_asset(asset,hazard_numpified,asset_geom,hazard_intensity,fragility_values,maxdams):
+def get_damage_per_asset(asset,hazard_numpified,asset_geom,hazard_intensity,fragility_values,maxdams, double_track_factor): #added double rail factor (0.5) as each rail tracks of double rail are separate assets
     #TODO does not return tuple but list of the same length as maxdams.
     """
     Calculate damage for a given asset based on hazard information.
@@ -69,7 +69,7 @@ def get_damage_per_asset(asset,hazard_numpified,asset_geom,hazard_intensity,frag
     else:
         if asset_geom.geom_type == 'LineString':
             overlay_meters = shapely.length(shapely.intersection(get_hazard_points[:,1],asset_geom)) # get the length of exposed meters per hazard cell
-            return [np.sum((np.interp(np.float16(get_hazard_points[:,0]),hazard_intensity,fragility_values))*overlay_meters*maxdam_asset) for maxdam_asset in maxdams] #return asset number, total damage for asset number (damage factor * meters * max. damage)
+            return [np.sum((np.interp(np.float16(get_hazard_points[:,0]),hazard_intensity,fragility_values))*overlay_meters*maxdam_asset*double_track_factor) for maxdam_asset in maxdams] #return asset number, total damage for asset number (damage factor * meters * max. damage)
         elif asset_geom.geom_type in ['MultiPolygon','Polygon']:
             overlay_m2 = shapely.area(shapely.intersection(get_hazard_points[:,1],asset_geom))
             return [np.sum((np.interp(np.float16(get_hazard_points[:,0]),hazard_intensity,fragility_values))*overlay_m2*maxdam_asset) for maxdam_asset in maxdams]
