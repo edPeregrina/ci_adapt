@@ -664,7 +664,6 @@ def prepare_route_data(route_data_source, assets=None):
     Returns:
         DataFrame: Prepared route data.
     """
-    route_data = pd.read_excel(route_data_source)
     transformer=Transformer.from_crs("EPSG:4326", "EPSG:3857")
 
     # Load route data
