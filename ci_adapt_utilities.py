@@ -393,7 +393,7 @@ def ead_by_ts_plot(ead_by_ts):
     plt.show()
 
 
-def calculate_new_paths(graph_v, shortest_paths, disrupted_edges):
+def calculate_new_paths(graph_v, shortest_paths, disrupted_edges, demand_reduction_dict=dict()):
     """
     Calculates new shortest paths in a graph after removing disrupted edges.
 
@@ -401,6 +401,7 @@ def calculate_new_paths(graph_v, shortest_paths, disrupted_edges):
         graph_v (Graph): Graph representing the infrastructure network.
         shortest_paths (dict): Dictionary of shortest paths.
         disrupted_edges (list): List of disrupted edges.
+        demand_reduction_dict (dict, optional): Dictionary of demand reductions by origin/destination. Defaults to dict().
 
     Returns:
         dict: Dictionary of new shortest paths.
@@ -415,11 +416,12 @@ def calculate_new_paths(graph_v, shortest_paths, disrupted_edges):
         if set(disrupted_edges).isdisjoint(edges_in_spath):
             continue
         else:
+            demand_reduction_factor=demand_reduction_dict[(origin,destination)] if (origin,destination) in demand_reduction_dict.keys() else 0
             try:
-                disrupted_shortest_paths[(origin,destination)] = (nx.shortest_path(graph_v_disrupted, origin, destination, weight='weight'), demand)
+                disrupted_shortest_paths[(origin,destination)] = (nx.shortest_path(graph_v_disrupted, origin, destination, weight='weight'), demand*(1-demand_reduction_factor))
             except nx.NetworkXNoPath:
                 print(f'No path between {origin} and {destination}. Cannot ship by train.')
-                disrupted_shortest_paths[(origin,destination)] = (None, demand)
+                disrupted_shortest_paths[(origin,destination)] = (None, demand*(1-demand_reduction_factor))
                 continue
     
     return disrupted_shortest_paths
@@ -895,7 +897,7 @@ def run_direct_damage_reduction_by_hazmap(assets, geom_dict, overlay_assets, haz
 
     return adaptation_run       
 
-def run_indirect_damages_by_hazmap(adaptation_run, assets, hazard_map, overlay_assets, disrupted_edges, shortest_paths, graph_v, average_train_load_tons, average_train_cost_per_ton_km, average_road_cost_per_ton_km):
+def run_indirect_damages_by_hazmap(adaptation_run, assets, hazard_map, overlay_assets, disrupted_edges, shortest_paths, graph_v, average_train_load_tons, average_train_cost_per_ton_km, average_road_cost_per_ton_km, demand_reduction_dict=dict()):
     """
     Runs indirect damage analysis for a hazard map, calculating economic impacts of disrupted paths.
 
@@ -910,6 +912,7 @@ def run_indirect_damages_by_hazmap(adaptation_run, assets, hazard_map, overlay_a
         average_train_load_tons (float): Average train load in tons.
         average_train_cost_per_ton_km (float): Average train cost per ton-kilometer.
         average_road_cost_per_ton_km (float): Average road cost per ton-kilometer.
+        demand_reduction_dict (dict, optional): Dictionary of demand reductions by origin/destination. Defaults to dict().
 
     Returns:
         float: Economic impact of the disruptions.
@@ -928,7 +931,7 @@ def run_indirect_damages_by_hazmap(adaptation_run, assets, hazard_map, overlay_a
     disrupted_edges_adapted = recalculate_disrupted_edges(graph_v, assets, disrupted_edges, fully_protected_assets, unexposed_osm_ids)
     print('disrupted_edges_adapted: ', disrupted_edges_adapted)
 
-    disrupted_shortest_paths_adapted=calculate_new_paths(graph_v, shortest_paths, disrupted_edges_adapted)
+    disrupted_shortest_paths_adapted=calculate_new_paths(graph_v, shortest_paths, disrupted_edges_adapted, demand_reduction_dict)
 
     if disrupted_shortest_paths_adapted == {}: # No disrupted paths, no economic impact
         print(f'No shortest paths disrupted for {hazard_map}. No economic impact.')
@@ -1091,6 +1094,36 @@ def add_l3_adaptation(graph_v, osm_id_pair, detour_index=0.5, adaptation_unit_co
     print('Applying adaptation: new connection between assets with osm_id ', osm_id_pair)
     print('Level 3 adaptation')
     return graph_v, adaptation_cost
+
+def add_l4_adaptation(graph_v, shortest_paths, adapted_route_area, demand_reduction=1.0):
+    """
+    Adds a level 4 adaptation by reducing demand on disrupted paths.
+
+    Args:
+        graph_v (Graph): Graph representing the infrastructure network.
+        shortest_paths (dict): Dictionary of shortest paths.
+        adapted_route_area (GeoDataFrame): GeoDataFrame of the area where demand is reduced.
+        demand_reduction (float, optional): Demand reduction factor, with 1 full reduction and 0 no reduction. Defaults to 1.0.
+    """
+    # Find the shortest paths that are within the adapted route area
+    # Make a list of unique nodes that are origin or destination
+    od_nodes = []
+    for (from_node, to_node), (path, demand) in shortest_paths.items():
+        od_nodes.append(from_node)
+        od_nodes.append(to_node)
+    od_nodes = list(set(od_nodes))
+    #create gdf_od_nodes with name of node and geometry of node
+    gdf_od_nodes = gpd.GeoDataFrame(od_nodes, columns=['od_nodes'], geometry=[graph_v.nodes[node]['geometry'] for node in od_nodes], crs=3857)
+    nodes_reduced_demand = gpd.overlay(gdf_od_nodes, adapted_route_area, how='intersection')
+    nodes_reduced_demand_list = list(nodes_reduced_demand.od_nodes)
+    # Reduce demand on the paths that are within the adapted route area
+    demand_reduction_dict = {}
+    for (from_node, to_node), (path, demand) in shortest_paths.items():
+        if from_node in nodes_reduced_demand_list or to_node in nodes_reduced_demand_list:
+            demand_reduction_dict[(from_node,to_node)] = demand_reduction
+
+    return demand_reduction_dict
+
 
 def add_adaptation_columns(adapted_assets):
     """
