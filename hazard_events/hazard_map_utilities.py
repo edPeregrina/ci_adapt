@@ -2,6 +2,7 @@ from pathlib import Path
 import pandas as pd
 import geopandas as gpd
 from shapely.validation import make_valid
+from shapely import geometry
 from tqdm import tqdm
 
 
@@ -77,3 +78,6 @@ def split_by_hybas_id(gdf, flood_map, output_map_dir):
         # Export the subset as GeoJSON in the output directory
         subset.to_file(output_path, driver='GeoJSON')
       
+def simplify_geometries(gdf, tolerance=0.000014):
+    gdf.geometry = gdf.geometry.simplify(tolerance)
+    return gdf
