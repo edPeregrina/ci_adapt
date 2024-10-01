@@ -1122,6 +1122,9 @@ def add_l4_adaptation(graph_v, shortest_paths, adapted_route_area, demand_reduct
         if from_node in nodes_reduced_demand_list or to_node in nodes_reduced_demand_list:
             demand_reduction_dict[(from_node,to_node)] = demand_reduction
 
+    print('Applying adaptation: reduced demand for routes: ', [key for key in demand_reduction_dict.keys()])
+    print('Level 4 adaptation')
+
     return demand_reduction_dict
 
 
