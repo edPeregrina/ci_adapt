@@ -354,6 +354,28 @@ def run_damage_reduction_by_asset(assets, geom_dict, overlay_assets, hazard_nump
 
     return collect_inb_bl, collect_inb_adapt, adaptation_cost
 
+# def calculate_dynamic_return_periods(return_period_dict, num_years, increase_factor):
+#     """
+#     Calculates dynamic return periods over a specified number of years and calculates return periods in the future based on an increase factor.
+
+#     Args:
+#         return_period_dict (dict): Dictionary of return periods.
+#         num_years (int): Number of years.
+#         increase_factor (dict): Dictionary of increase factors.
+
+#     Returns:
+#         dict: Dynamic return periods.
+#     """
+#     years = np.linspace(0, num_years, num_years + 1)
+#     return_periods = {}
+#     for category, rp in return_period_dict.items(): 
+#         freq = 1 / rp
+#         freq_new = freq * increase_factor[category]
+#         freqs = np.interp(years, [0, num_years], [freq, freq_new])
+#         return_periods[category] = [1 / freq for freq in freqs]
+
+#     return return_periods
+
 def calculate_dynamic_return_periods(return_period_dict, num_years, increase_factor):
     """
     Calculates dynamic return periods over a specified number of years and calculates return periods in the future based on an increase factor.
@@ -366,6 +388,8 @@ def calculate_dynamic_return_periods(return_period_dict, num_years, increase_fac
     Returns:
         dict: Dynamic return periods.
     """
+    #sort return period categories from high to low
+    return_period_dict = {k: v for k, v in sorted(return_period_dict.items(), key=lambda item: item[1])}
     years = np.linspace(0, num_years, num_years + 1)
     return_periods = {}
     for category, rp in return_period_dict.items(): 
@@ -955,6 +979,18 @@ def add_l1_adaptation(adapted_assets, affected_assets, rp_spec_priority):
         DataFrame: Updated adapted assets.
     """
     for asset_id in affected_assets.index:
+        current_adaptation = adapted_assets.loc[asset_id]['l1_adaptation']
+        adaptation_spec = affected_assets.loc[asset_id]['rp_spec']
+        
+        # Debug prints
+        print(f'Asset ID: {asset_id}')
+        print(f'Current adaptation: {current_adaptation}')
+        print(f'Adaptation spec: {adaptation_spec}')
+        
+        if adaptation_spec not in rp_spec_priority:
+            print(f'Warning: Adaptation spec {adaptation_spec} not in rp_spec_priority')
+            continue
+        
         current_prio=rp_spec_priority.index(adapted_assets.loc[asset_id]['l1_adaptation'])
         adaptation_prio=rp_spec_priority.index(affected_assets.loc[asset_id]['rp_spec'])
         if adaptation_prio < current_prio:
@@ -1274,3 +1310,26 @@ def process_adap_dat(single_footprint, adaptation_areas, hazard_numpified_list, 
 
         adaptations_cost_dict = get_cost_per_area(adaptation_area,hazard_numpified_list[-1],adapt_segment_geom, adaptation_unit_cost)
     return adaptations_cost_dict 
+
+# Define other functions (development)
+def find_basin_lists(basins, regions):
+    """
+    Finds lists of basins for tributaries and full flood areas based on basin and region data.
+
+    Args:
+        basins (GeoDataFrame): GeoDataFrame containing basin data.
+        regions (GeoDataFrame): GeoDataFrame containing region data.            
+    Returns:        
+        tuple: Lists of basins for tributaries and full flood areas.        
+
+    """
+
+    intersect_basins_regions = gpd.overlay(basins, regions, how='intersection')
+    exclude_main_rivers=intersect_basins_regions.loc[intersect_basins_regions['ORDER']==1]
+
+    basins_exclusion_list = [x for x in exclude_main_rivers['HYBAS_ID'].values]
+    basin_list_tributaries = set([x for x in intersect_basins_regions['HYBAS_ID'].values if x not in basins_exclusion_list]) 
+    basin_list_full_flood = set(intersect_basins_regions['HYBAS_ID'].values)
+    return basin_list_tributaries, basin_list_full_flood
+
+
