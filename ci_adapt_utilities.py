@@ -273,11 +273,8 @@ def run_damage_reduction_by_asset(assets, geom_dict, overlay_assets, hazard_nump
         skip_bridge=False
         skip_tunnel=False
 
-    timestamp=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f'{timestamp} - Calculating adapted damages for assets...')
-
     # interate over all unique assets and skip those that are not changed
-    for asset in tqdm(overlay_assets.groupby('asset'),total=len(overlay_assets.asset.unique())): #asset is a tuple where asset[0] is the asset index or identifier and asset[1] is the asset-specific information
+    for asset in overlay_assets.groupby('asset'): #asset is a tuple where asset[0] is the asset index or identifier and asset[1] is the asset-specific information
         if asset[0] not in changed_assets.index:
             unchanged_assets.append(asset[0])
             continue
@@ -340,7 +337,6 @@ def run_damage_reduction_by_asset(assets, geom_dict, overlay_assets, hazard_nump
 
             collect_inb_adapt[asset[0]] = tuple(ds.get_damage_per_asset(asset,h_numpified,asset_geom,hazard_intensity,fragility_values*v_mod,maxdams_filt, double_track_factor)[0] for h_numpified in hazard_numpified_list_mod)
 
-    print(f'{len(unchanged_assets)} assets with no change.')
 
         #reporting
     if reporting==True:
@@ -911,12 +907,10 @@ def run_direct_damage_reduction_by_hazmap(assets, geom_dict, overlay_assets, haz
     vulnerability_data = config.get('DEFAULT', 'vulnerability_data')
     infra_curves, maxdams = ds.read_vul_maxdam(data_path, hazard_type, infra_type)
     max_damage_tables = pd.read_excel(data_path / vulnerability_data / 'Table_D3_Costs_V1.0.0.xlsx',sheet_name='Cost_Database',index_col=[0])
-    print(f'Found matching infrastructure curves for: {infra_type}')
 
     hazard_intensity = infra_curves['F8.1'].index.values
     fragility_values = (np.nan_to_num(infra_curves['F8.1'].values,nan=(np.nanmax(infra_curves['F8.1'].values)))).flatten()
     maxdams_filt=max_damage_tables[max_damage_tables['ID number']=='F8.1']['Amount']
-    print('-- Calculating direct damages --')
     adaptation_run = run_damage_reduction_by_asset(assets, geom_dict, overlay_assets, hazard_numpified_list, collect_inb_bl, adapted_assets, hazard_intensity, fragility_values, maxdams_filt, 
                                                    map_rp_spec=map_rp_spec, asset_options=asset_options, rp_spec_priority = rp_spec_priority, reporting=reporting, adaptation_unit_cost=adaptation_unit_cost)
 
@@ -983,11 +977,6 @@ def add_l1_adaptation(adapted_assets, affected_assets, rp_spec_priority):
         current_adaptation = adapted_assets.loc[asset_id]['l1_adaptation']
         adaptation_spec = affected_assets.loc[asset_id]['rp_spec']
         
-        # Debug prints
-        print(f'Asset ID: {asset_id}')
-        print(f'Current adaptation: {current_adaptation}')
-        print(f'Adaptation spec: {adaptation_spec}')
-        
         if adaptation_spec not in rp_spec_priority:
             print(f'Warning: Adaptation spec {adaptation_spec} not in rp_spec_priority')
             continue
@@ -997,7 +986,7 @@ def add_l1_adaptation(adapted_assets, affected_assets, rp_spec_priority):
         if adaptation_prio < current_prio:
             adapted_assets.loc[asset_id, 'l1_adaptation'] = affected_assets.loc[asset_id]['prot_area']
             adapted_assets.loc[asset_id, 'l1_rp_spec'] = affected_assets.loc[asset_id]['rp_spec']
-             
+            
     return adapted_assets
 
 def add_l2_adaptation(adapted_assets, affected_assets, overlay_assets, hazard_numpified_list):
@@ -1290,7 +1279,7 @@ def process_adap_dat(single_footprint, adaptation_areas, hazard_numpified_list, 
         adaptation_unit_cost (float, optional): Cost per unit length of the adaptation. Defaults to 1.0.
 
     Returns:
-        dict: Dictionary with adaptation costs for each area.
+        float: Total adaptation cost for the basin.
     """
     # load hazard map
     hazard_map = ds.read_flood_map(single_footprint)
@@ -1308,9 +1297,10 @@ def process_adap_dat(single_footprint, adaptation_areas, hazard_numpified_list, 
     adaptations_cost_dict={}
     for adaptation_area in tqdm(overlay_adaptation_areas.groupby('adaptation_area'), total=len(overlay_adaptation_areas.adaptation_area.unique())): #adapted from Koks
         adapt_segment_geom = geom_dict_aa[adaptation_area[0]]
-
-        adaptations_cost_dict = get_cost_per_area(adaptation_area,hazard_numpified_list[-1],adapt_segment_geom, adaptation_unit_cost)
-    return adaptations_cost_dict 
+        # adaptations_cost_dict = get_cost_per_area(adaptation_area,hazard_numpified_list[-1],adapt_segment_geom, adaptation_unit_cost)
+        adaptations_cost_dict[adaptation_area[0]] = get_cost_per_area(adaptation_area,hazard_numpified_list[-1],adapt_segment_geom, adaptation_unit_cost)
+    adaptation_cost_basin = sum(adaptations_cost_dict.values())
+    return adaptation_cost_basin 
 
 # Define other functions (development)
 def find_basin_lists(basins, regions):
