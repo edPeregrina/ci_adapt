@@ -32,7 +32,6 @@ def preprocess_assets(assets_path):
     assets = gpd.GeoDataFrame(assets).set_crs(4326).to_crs(3857)
     assets = assets.loc[assets.geometry.geom_type == 'LineString']
     assets = assets.rename(columns={'railway' : 'asset'})
-    # assets = assets[assets['railway:traffic_mode']!='"passenger"']
     assets = assets[assets['asset']=='rail']
 
     assets = assets.reset_index(drop=True)
@@ -130,10 +129,12 @@ def process_hazard_data(single_footprint, hazard_type, assets, interim_data_path
 
     # convert hazard data to epsg 3857
     if '.shp' or '.geojson' in str(hazard_map):
-        hazard_map=gpd.read_file(hazard_map).to_crs(3857)[['w_depth_l','w_depth_u','geometry']] #take only necessary columns (lower and upper bounds of water depth and geometry)
+        hazard_map=gpd.read_file(hazard_map).to_crs(3857)[['w_depth_l','w_depth_u', 'flood_area','geometry']] #take only necessary columns (lower and upper bounds of water depth and geometry)
     else:
         hazard_map = gpd.GeoDataFrame(hazard_map).set_crs(4326).to_crs(3857)
 
+    hazard_map = hazard_map[hazard_map['flood_area'] == 1] # filter out flood protected areas
+    hazard_map = hazard_map.drop('flood_area', axis=1)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f'{timestamp} - Coarse overlay of hazard map with assets...')
     
@@ -1125,7 +1126,7 @@ def add_l3_adaptation(graph_v, osm_id_pair, detour_index=0.5, adaptation_unit_co
     graph_v.add_edge(closest_nodes[0], closest_nodes[1], osm_id='l3_adaptation_to', capacity=1, weight=int(round(length_01*1e3/detour_index,0)), length=length_01, geometry=geom_01)
     graph_v.add_edge(closest_nodes[1], closest_nodes[0], osm_id='l3_adaptation_from', capacity=1, weight=int(round(length_10*1e3/detour_index,0)), length=length_10, geometry=geom_10)
     
-    adaptation_cost = length_01*adaptation_unit_cost
+    adaptation_cost = length_01*adaptation_unit_cost/detour_index
     
     print('Applying adaptation: new connection between assets with osm_id ', osm_id_pair)
     print('Level 3 adaptation')
