@@ -43,7 +43,6 @@ def buffer_assets(assets,buffer_size=0.00083):
 
 
 def get_damage_per_asset(asset,hazard_numpified,asset_geom,hazard_intensity,fragility_values,maxdams, double_track_factor): #added double rail factor (0.5) as each rail tracks of double rail are separate assets
-    #TODO does not return tuple but list of the same length as maxdams.
     """
     Calculate damage for a given asset based on hazard information.
     Arguments:
@@ -55,7 +54,7 @@ def get_damage_per_asset(asset,hazard_numpified,asset_geom,hazard_intensity,frag
         *curve*: Pandas DataFrame representing the curve for the asset type.
         *maxdam*: Maximum damage value. #maxdams list of maxdam
     Returns:
-        *tuple*: A tuple containing the asset index or identifier and the calculated damage.
+        *list*: A list containing the asset index or identifier and the calculated damage.
     """
     
     # find the exact hazard overlays:
@@ -76,7 +75,7 @@ def get_damage_per_asset(asset,hazard_numpified,asset_geom,hazard_intensity,frag
         elif asset_geom.geom_type == 'Point':
             return [np.sum((np.interp(np.float16(get_hazard_points[:,0]),hazard_intensity,fragility_values))*maxdam_asset) for maxdam_asset in maxdams]
 
-def read_hazard_data(data_path,hazard_type,country='Germany',defended=False,subfolders=None):
+def read_hazard_data(data_path,hazard_type='fluvial',country='Germany',defended=False,subfolders=None):
 
     if hazard_type == 'fluvial' and defended == False:
         hazard_data = data_path 
