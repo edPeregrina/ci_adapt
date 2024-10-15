@@ -1324,3 +1324,223 @@ def find_basin_lists(basins, regions):
     return basin_list_tributaries, basin_list_full_flood
 
 
+# Function definitions
+def find_basin_lists(basins, regions):
+    """
+    Finds lists of basins for tributaries and full flood areas based on basin and region data.
+
+    Args:
+        basins (GeoDataFrame): GeoDataFrame containing basin data.
+        regions (GeoDataFrame): GeoDataFrame containing region data.
+
+    Returns:
+        tuple: Lists of basins for tributaries and full flood areas.
+    """ 
+
+    intersect_basins_regions = gpd.overlay(basins, regions, how='intersection')
+    exclude_main_rivers=intersect_basins_regions.loc[intersect_basins_regions['ORDER']==1]
+
+    basins_exclusion_list = [x for x in exclude_main_rivers['HYBAS_ID'].values]
+    basin_list_tributaries = set([x for x in intersect_basins_regions['HYBAS_ID'].values if x not in basins_exclusion_list]) 
+    basin_list_full_flood = set(intersect_basins_regions['HYBAS_ID'].values)
+    return basin_list_tributaries, basin_list_full_flood
+
+
+def calculate_l1_costs(local_haz_path, adapted_area, adaptation_unit_costs, adapted_assets):
+    """
+    Calculates level 1 adaptation costs for a specified area.
+
+    Args:
+        local_haz_path (Path): Path to hazard data.
+        adapted_area (GeoDataFrame): GeoDataFrame of the adapted area.
+        adaptation_unit_costs (dict): Dictionary of adaptation unit costs.
+        adapted_assets (GeoDataFrame): GeoDataFrame of the adapted assets.
+
+    Returns:
+        dict: Cost of level 1 adaptation for each hazard map area.
+    
+    """
+
+    hazard_data_list = ds.read_hazard_data(local_haz_path)
+    print(f'Found {len(hazard_data_list)} hazard maps.')
+    if adapted_area is not None:
+        adapted_area=adapted_area.explode().reset_index(drop=True)
+        adapted_area['geometry'] = adapted_area['geometry'].apply(lambda x: shapely.LineString(x.exterior) if isinstance(x, (shapely.Polygon, shapely.MultiPolygon)) else x)
+        adapted_area['buffered'] = shapely.buffer(adapted_area.geometry.values,distance=1)    
+
+        l1_adaptation_costs = {}
+        for (adaptation_id, ad) in adapted_area.iterrows():
+            if ad.adapt_level != 1:
+                continue
+
+            for i, single_footprint in enumerate(hazard_data_list):
+                hazard_map = single_footprint.parts[-1].split('.')[0]     
+            
+                haz_rp=hazard_map.split('_')[-3]
+                if haz_rp != ad.rp_spec.upper():
+                    continue
+            
+                overlay_assets = load_baseline_run(hazard_map, interim_data_path, only_overlay=True)
+                if set(overlay_assets.asset.values).isdisjoint(adapted_assets.index):
+                    continue
+                if 'fwall' not in ad.prot_area:
+                    continue
+                try:
+                    hazard_numpified_list = load_baseline_run(hazard_map, interim_data_path)[1]
+                    adaptation_gdf=gpd.GeoDataFrame(adapted_area.iloc[[adaptation_id]])
+                    if adaptation_id not in l1_adaptation_costs.keys():
+                        l1_adaptation_costs[adaptation_id] = process_adap_dat(single_footprint, adaptation_gdf, hazard_numpified_list, adaptation_unit_cost=adaptation_unit_costs['fwall'])
+                    else:
+                        l1_adaptation_costs[adaptation_id] += process_adap_dat(single_footprint, adaptation_gdf, hazard_numpified_list, adaptation_unit_cost=adaptation_unit_costs['fwall'])                    
+                    continue
+
+                except Exception as e:
+                    print(f'Error occurred in {hazard_map}: {str(e)}')
+                    continue
+        return l1_adaptation_costs
+
+def apply_adaptations(adapted_area, assets, collect_output, interim_data_path, rp_spec_priority, adaptation_unit_costs, shortest_paths, graph_v, added_links, adapted_route_area):
+    """
+    Applies adaptations to assets in a hazard area.
+
+    Args:
+        adapted_area (GeoDataFrame): GeoDataFrame of the adapted area.
+        assets (GeoDataFrame): GeoDataFrame of the assets.
+        collect_output (dict): Dictionary of baseline damages by asset.
+        interim_data_path (Path): Path to interim data storage.
+        rp_spec_priority (list): List of return period priorities.
+        adaptation_unit_costs (dict): Dictionary of adaptation unit costs.
+        shortest_paths (dict): Dictionary of shortest paths between origins and destinations.
+        graph_v (Graph): Graph representing the infrastructure network.
+        added_links (list): List of added links.
+        adapted_route_area (GeoDataFrame): GeoDataFrame of the adapted route area.
+
+    Returns:
+        tuple: adapted_assets (DataFrame), adaptations_df (DataFrame), demand_reduction_dict (dict), l3_adaptation_costs (dict)
+    """
+
+    adaptations_df=create_adaptation_df(adapted_area)
+    if adapted_area is not None:
+        assets_to_adapt = filter_assets_to_adapt(assets, adapted_area)
+        adapted_assets = assets.loc[assets.index.isin(assets_to_adapt.index)].copy()
+        adapted_assets = add_adaptation_columns(adapted_assets)
+
+        for (adaptation_id, ad) in adapted_area.iterrows():
+            affected_assets=assets_to_adapt.loc[assets_to_adapt['adaptation_id']==adaptation_id].copy()  
+            rp_specs = set(affected_assets['rp_spec'])
+
+            for hazard_map in collect_output.keys():
+                haz_rp=hazard_map.split('_')[-3]
+                if haz_rp not in rp_specs:
+                    continue
+                overlay_assets = load_baseline_run(hazard_map, interim_data_path, only_overlay=True)
+                if set(overlay_assets.asset.values).isdisjoint(affected_assets.index):
+                    continue
+                else: 
+                    overlay_assets, hazard_numpified_list = load_baseline_run(hazard_map, interim_data_path)
+                    adapted_assets = apply_asset_adaptations_in_haz_area(adapted_assets, affected_assets, overlay_assets, hazard_numpified_list, rp_spec_priority)
+    else:
+        adapted_assets = assets.iloc[0:0].copy()
+        adapted_assets = add_adaptation_columns(adapted_assets)
+    l3_adaptation_costs = {}
+    for i,osm_id_pair in enumerate(added_links):
+        graph_v, l3_ad_cost = add_l3_adaptation(graph_v, osm_id_pair, adaptation_unit_cost=adaptation_unit_costs['bridge'])
+        l3_adaptation_costs[osm_id_pair] = l3_ad_cost
+        l3_ad_sum=[i, 'NA', 3, 'NA', l3_ad_cost]
+        adaptations_df.loc[i] = l3_ad_sum
+
+    if adapted_route_area is not None:
+        demand_reduction_dict = add_l4_adaptation(graph_v, shortest_paths, adapted_route_area, demand_reduction=1.0)
+        for i,(o,d) in enumerate(demand_reduction_dict.keys()):
+            l4_ad_sum=[i, 'NA', 4, ((o,d),demand_reduction_dict[(o,d)]),0]
+            adaptations_df.loc[i] = l4_ad_sum
+    else:
+        demand_reduction_dict = {}
+
+    return adapted_assets, adaptations_df, demand_reduction_dict, l3_adaptation_costs
+
+def run_adapted_damages(collect_output, interim_data_path, assets, geom_dict, adapted_assets, adaptations_df, rp_spec_priority, adaptation_unit_costs, shortest_paths, graph_v, average_train_load_tons, average_train_cost_per_ton_km, average_road_cost_per_ton_km, demand_reduction_dict):
+    """
+    Runs direct and indirect damage calculation with adaptations.
+
+    Args:
+        collect_output (dict): Dictionary of baseline damages by hazard map.
+        interim_data_path (Path): Path to interim data storage.
+        assets (GeoDataFrame): GeoDataFrame of the assets.
+        geom_dict (dict): Dictionary of asset geometries.
+        adapted_assets (DataFrame): DataFrame of adapted assets.
+        adaptations_df (DataFrame): DataFrame of adaptations.
+        rp_spec_priority (list): List of return period priorities.
+        adaptation_unit_costs (dict): Dictionary of adaptation unit costs.
+        shortest_paths (dict): Dictionary of shortest paths between origins and destinations.
+        graph_v (Graph): Graph representing the infrastructure network.
+        average_train_load_tons (float): Average train load in tons.
+        average_train_cost_per_ton_km (float): Average train cost per ton-kilometer.
+        average_road_cost_per_ton_km (float): Average road cost per ton-kilometer.
+        demand_reduction_dict (dict): Dictionary of demand reductions by origin/destination.
+
+    Returns:
+        tuple: direct_damages_adapted (dict), indirect_damages_adapted (dict), adaptation_run_full (dict), l2_adaptation_costs (dict)
+    
+    """
+    l2_adaptation_costs = {}
+    overlay_assets_lists = {'flood_DERP_RW_M':[], 'flood_DERP_RW_H':[], 'flood_DERP_RW_L':[]}
+    adaptation_run_full = {'flood_DERP_RW_M':[{},{}], 'flood_DERP_RW_H':[{},{}], 'flood_DERP_RW_L':[{},{}]}
+    for hazard_map in tqdm(collect_output.keys(), desc='Processing adaptations by hazard map', total=len(collect_output.keys())):
+        hm_full_id=hazard_map.split('_4326')[0]
+        map_rp_spec = hazard_map.split('_')[-3]
+        overlay_assets, hazard_numpified_list = load_baseline_run(hazard_map, interim_data_path)
+        overlay_assets_lists[hm_full_id].extend(overlay_assets.asset.values.tolist())
+        adaptation_run = run_direct_damage_reduction_by_hazmap(assets, geom_dict, overlay_assets, hazard_numpified_list, collect_output[hazard_map], adapted_assets, map_rp_spec=map_rp_spec, rp_spec_priority=rp_spec_priority, reporting=False, adaptation_unit_cost=adaptation_unit_costs['viaduct'])
+
+        # Sum the values for the first dictionary in the tuple
+        adaptation_run_full[hm_full_id][0] = {k: [adaptation_run_full[hm_full_id][0].get(k, [0, 0])[0] + adaptation_run[0].get(k, [0, 0])[0], 
+                                adaptation_run_full[hm_full_id][0].get(k, [0, 0])[1] + adaptation_run[0].get(k, [0, 0])[1]] 
+                            for k in set(adaptation_run_full[hm_full_id][0]) | set(adaptation_run[0])}
+
+        # Sum the values for the second dictionary in the tuple
+        adaptation_run_full[hm_full_id][1] = {k: [adaptation_run_full[hm_full_id][1].get(k, [0, 0])[0] + adaptation_run[1].get(k, [0, 0])[0], 
+                                adaptation_run_full[hm_full_id][1].get(k, [0, 0])[1] + adaptation_run[1].get(k, [0, 0])[1]] 
+                            for k in set(adaptation_run_full[hm_full_id][1]) | set(adaptation_run[1])}
+
+        direct_damages_adapted[hazard_map]=adaptation_run[1]
+        if adaptation_run[2] == {}:
+            pass
+        else:
+            l2_adaptation_costs[hazard_map] = adaptation_run[2]
+        if direct_damages_adapted[hazard_map]=={} and 3 not in adaptations_df.adapt_level.unique() and 4 not in adaptations_df.adapt_level.unique():
+            indirect_damages_adapted[hazard_map]={}
+            continue
+        disrupted_edges = disrupted_edges_by_basin[hazard_map] if hazard_map in disrupted_edges_by_basin.keys() else []
+        indirect_damages_adapted[hazard_map] = run_indirect_damages_by_hazmap(adaptation_run, assets, hazard_map, overlay_assets, disrupted_edges, shortest_paths, graph_v, average_train_load_tons, average_train_cost_per_ton_km, average_road_cost_per_ton_km, demand_reduction_dict)
+
+    return direct_damages_adapted, indirect_damages_adapted, adaptation_run_full, l2_adaptation_costs, overlay_assets_lists
+
+def calculate_indirect_dmgs_fullflood(full_flood_event, overlay_assets_lists, adaptation_run_full, assets, all_disrupted_edges, shortest_paths, graph_v, average_train_load_tons, average_train_cost_per_ton_km, average_road_cost_per_ton_km, demand_reduction_dict):
+    """
+    Calculates indirect damages for full flood events.
+
+    Args:
+        full_flood_event (dict): Dictionary of full flood events.
+        overlay_assets_lists (dict): Dictionary of overlay assets for each full flood event.
+        adaptation_run_full (dict): Dictionary of adaptation runs for all hazard maps.
+        assets (GeoDataFrame): Asset data.
+        all_disrupted_edges (dict): Dictionary of disrupted edges by hazard map.
+        shortest_paths (dict): Dictionary of shortest paths between origins and destinations.
+        graph_v (Graph): Graph representing the infrastructure network.
+        average_train_load_tons (float): Average train load in tons.
+        average_train_cost_per_ton_km (float): Average train cost per ton-kilometer.
+        average_road_cost_per_ton_km (float): Average road cost per ton-kilometer.
+        demand_reduction_dict (dict): Dictionary of demand reductions by origin/destination.
+
+    Returns:
+        dict: Indirect damages for full flood events.
+    """
+    indirect_damages_adapted_full={}
+    for hazard_map in full_flood_event.keys():
+        print('\nProcessing hazard map: ', hazard_map)
+        overlay_assets_full_dict = {i:overlay_assets_lists[hazard_map][i] for i in range(len(overlay_assets_lists[hazard_map]))}
+        overlay_assets_full=pd.DataFrame(overlay_assets_full_dict, index=['asset']).T
+        indirect_damages_adapted_full[hazard_map] = run_indirect_damages_by_hazmap(adaptation_run_full[hazard_map], assets, hazard_map, overlay_assets_full, all_disrupted_edges[hazard_map], shortest_paths, graph_v, average_train_load_tons, average_train_cost_per_ton_km, average_road_cost_per_ton_km, demand_reduction_dict)
+
+    return indirect_damages_adapted_full
