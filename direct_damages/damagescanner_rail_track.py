@@ -115,9 +115,7 @@ def read_vul_maxdam(data_path,hazard_type,infra_type):
 def read_flood_map(flood_map_path):
 
     # check if vector and return path, and vectorize if raster"
-    print('Flood map path: '+str(flood_map_path))
     if '.shp' or '.geojson' in str(flood_map_path):
-        # [Q1 - Elco] - should I try to re-vectorize/will it help overlay speed?
         return flood_map_path
     
     else: print('Vectorizing...')
