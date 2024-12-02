@@ -704,9 +704,9 @@ def prepare_route_data(route_data_source, assets=None):
 
     return route_data
 
-def set_edge_capacities(graph, route_data, simplified=False):
+def find_shortest_paths_capacities(graph, route_data, simplified=False):
     """
-    Sets capacities for graph edges based on shortest paths between origin-destination pairs.
+    Finds the shortest paths between terminal nodes in a graph based on route data and assigns capacities to edges.
 
     Args:
         graph (Graph): Graph representing the infrastructure network.
@@ -1945,8 +1945,34 @@ def compare_outputs(collect_output, direct_damages_adapted, event_impacts, indir
             pass
     return print('Direct damage changes: ', changes_direct, '\nIndirect damage changes: ', changes_indirect)
 
+def load_config(config_file):
+    """
+    Load the configuration file
 
-def startup_ci_adapt(data_path, config_file, interim_data_path):
+    Args:
+    config_file: str: path to the configuration file
+
+    Returns:
+    hazard_type: str: type of hazard
+    infra_type: str: type of infrastructure
+    country_code: str: country code
+    country_name: str: country name
+    hazard_data_subfolders: str: subfolders of the hazard data
+    asset_data: str: path to the asset data
+    vulnerability_data: str: path to the vulnerability data  
+    """
+    config = configparser.ConfigParser()
+    config.read(config_file)
+    hazard_type = config.get('DEFAULT', 'hazard_type')
+    infra_type = config.get('DEFAULT', 'infra_type')
+    country_code = config.get('DEFAULT', 'country_code')
+    country_name = config.get('DEFAULT', 'country_name')
+    hazard_data_subfolders = config.get('DEFAULT', 'hazard_data_subfolders')
+    asset_data = config.get('DEFAULT', 'asset_data')
+    vulnerability_data = config.get('DEFAULT', 'vulnerability_data')
+    return hazard_type, infra_type, country_code, country_name, hazard_data_subfolders, asset_data, vulnerability_data
+
+def startup_ci_adapt(data_path, config_file, interim_data_path=None):
     """
     Startup function for the ci_adapt model
 
@@ -1962,8 +1988,6 @@ def startup_ci_adapt(data_path, config_file, interim_data_path):
         - return_period_dict (dict): A dictionary of return periods
         - adaptation_unit_costs (dict): A dictionary of adaptation unit costs
         - rp_spec_priority (set): A set of return period priorities
-        - assets (GeoDataFrame): A GeoDataFrame of the assets
-        - geom_dict (dict): A dictionary of the geometries of the assets
         - average_road_cost_per_ton_km (float): Average road cost per ton per km
         - average_train_cost_per_ton_km (float): Average train cost per ton per km
         - average_train_load_tons (float): Average train load in tons
@@ -2004,7 +2028,7 @@ def startup_ci_adapt(data_path, config_file, interim_data_path):
 
     print(f"{len(assets)} assets loaded.")
 
-    return assets, geom_dict, miraca_colors, return_period_dict, adaptation_unit_costs, rp_spec_priority, assets, geom_dict, average_road_cost_per_ton_km, average_train_cost_per_ton_km, average_train_load_tons
+    return assets, geom_dict, miraca_colors, return_period_dict, adaptation_unit_costs, rp_spec_priority, average_road_cost_per_ton_km, average_train_cost_per_ton_km, average_train_load_tons
 
 def load_baseline_impact_assessment(data_path):
     """	
