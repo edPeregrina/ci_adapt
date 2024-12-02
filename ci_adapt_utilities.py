@@ -861,11 +861,13 @@ def load_baseline_run(hazard_map, interim_data_path, only_overlay=False):
     
     return overlay_assets, hazard_numpified_list
 
-def run_direct_damage_reduction_by_hazmap(assets, geom_dict, overlay_assets, hazard_numpified_list, collect_inb_bl, adapted_assets, map_rp_spec=None, asset_options=None, rp_spec_priority = None, reporting=False, adaptation_unit_cost=22500):
+def run_direct_damage_reduction_by_hazmap(data_path, config_file, assets, geom_dict, overlay_assets, hazard_numpified_list, collect_inb_bl, adapted_assets, map_rp_spec=None, asset_options=None, rp_spec_priority = None, reporting=False, adaptation_unit_cost=22500):
     """
     Runs direct damage reduction analysis for a hazard map, calculating damages and adaptation costs.
 
     Args:
+        data_path (Path): Path to data storage.
+        config_file (str): Path to configuration file.
         assets (GeoDataFrame): Asset data.
         geom_dict (dict): Dictionary of asset geometries.
         overlay_assets (DataFrame): DataFrame of overlay assets.
@@ -881,16 +883,16 @@ def run_direct_damage_reduction_by_hazmap(assets, geom_dict, overlay_assets, haz
     Returns:
         tuple: Adaptation run results.
     """
-    data_path = Path(pathlib.Path.home().parts[0]) / 'Data'
+    # data_path = Path(pathlib.Path.home().parts[0]) / 'Data'
     # Load configuration with ini file (created running config.py)
-    config_file=r'C:\repos\ci_adapt\config_ci_adapt.ini'
+    # config_file=r'C:\repos\ci_adapt\config_ci_adapt.ini'
     config = configparser.ConfigParser()
     config.read(config_file)
     hazard_type = config.get('DEFAULT', 'hazard_type')
     infra_type = config.get('DEFAULT', 'infra_type')
     vulnerability_data = config.get('DEFAULT', 'vulnerability_data')
     infra_curves, maxdams = ds.read_vul_maxdam(data_path, hazard_type, infra_type)
-    max_damage_tables = pd.read_excel(data_path / vulnerability_data / 'Table_D3_Costs_V1.0.0.xlsx',sheet_name='Cost_Database',index_col=[0])
+    max_damage_tables = pd.read_excel(data_path / vulnerability_data / 'Table_D3_Costs_V1.1.0.xlsx',sheet_name='Cost_Database',index_col=[0])
 
     hazard_intensity = infra_curves['F8.1'].index.values
     fragility_values = (np.nan_to_num(infra_curves['F8.1'].values,nan=(np.nanmax(infra_curves['F8.1'].values)))).flatten()
@@ -1447,11 +1449,13 @@ def apply_adaptations(adapted_area, assets, collect_output, interim_data_path, r
 
     return adapted_assets, adaptations_df, demand_reduction_dict, l3_adaptation_costs
 
-def run_adapted_damages(collect_output, disrupted_edges_by_basin, interim_data_path, assets, geom_dict, adapted_assets, adaptations_df, rp_spec_priority, adaptation_unit_costs, shortest_paths, graph_v, average_train_load_tons, average_train_cost_per_ton_km, average_road_cost_per_ton_km, demand_reduction_dict, reporting=False):
+def run_adapted_damages(data_path, config_file, collect_output, disrupted_edges_by_basin, interim_data_path, assets, geom_dict, adapted_assets, adaptations_df, rp_spec_priority, adaptation_unit_costs, shortest_paths, graph_v, average_train_load_tons, average_train_cost_per_ton_km, average_road_cost_per_ton_km, demand_reduction_dict, reporting=False):
     """
     Runs direct and indirect damage calculation with adaptations.
 
     Args:
+        data_path (Path): Path to data storage.
+        config_file (Path): Path to the configuration file.
         collect_output (dict): Dictionary of baseline damages by hazard map.
         disrupted_edges_by_basin (dict): Dictionary of disrupted edges by basin.
         interim_data_path (Path): Path to interim data storage.
@@ -1483,7 +1487,7 @@ def run_adapted_damages(collect_output, disrupted_edges_by_basin, interim_data_p
         map_rp_spec = hazard_map.split('_')[-3]
         overlay_assets, hazard_numpified_list = load_baseline_run(hazard_map, interim_data_path)
         overlay_assets_lists[hm_full_id].extend(overlay_assets.asset.values.tolist())
-        adaptation_run = run_direct_damage_reduction_by_hazmap(assets, geom_dict, overlay_assets, hazard_numpified_list, collect_output[hazard_map], adapted_assets, map_rp_spec=map_rp_spec, rp_spec_priority=rp_spec_priority, reporting=reporting, adaptation_unit_cost=adaptation_unit_costs['viaduct'])
+        adaptation_run = run_direct_damage_reduction_by_hazmap(data_path, config_file, assets, geom_dict, overlay_assets, hazard_numpified_list, collect_output[hazard_map], adapted_assets, map_rp_spec=map_rp_spec, rp_spec_priority=rp_spec_priority, reporting=reporting, adaptation_unit_cost=adaptation_unit_costs['viaduct'])
 
         # Sum the values for the first dictionary in the tuple
         adaptation_run_full[hm_full_id][0] = {k: [adaptation_run_full[hm_full_id][0].get(k, [0, 0])[0] + adaptation_run[0].get(k, [0, 0])[0], 
@@ -1942,7 +1946,7 @@ def compare_outputs(collect_output, direct_damages_adapted, event_impacts, indir
     return print('Direct damage changes: ', changes_direct, '\nIndirect damage changes: ', changes_indirect)
 
 
-def startup_ci_adapt(data_path, interim_data_path):
+def startup_ci_adapt(data_path, config_file, interim_data_path):
     """
     Startup function for the ci_adapt model
 
@@ -1965,7 +1969,7 @@ def startup_ci_adapt(data_path, interim_data_path):
         - average_train_load_tons (float): Average train load in tons
     """	
     # Load configuration with ini file (created running config.py)
-    config_file=r'C:\repos\ci_adapt\config_ci_adapt.ini'
+    # config_file=r'C:\repos\ci_adapt\config_ci_adapt.ini'
     config = configparser.ConfigParser()
     config.read(config_file)
 
@@ -2090,7 +2094,6 @@ def compile_direct_risk(inc_f, return_periods, basins_list, collect_output, tota
     - total_dd_all (numpy ndarray): An array of the total direct damages for all basins over all timesteps.
     - eadD_by_ts_by_basin (dict): A dictionary of the expected annual direct damages for each basin for each timestep. 
     """
-
     eadD_by_ts_by_basin_incf = {}
     eadD_by_ts_by_basin_incf[inc_f] = {}
     basin_dict = {}
@@ -2186,10 +2189,11 @@ def compile_indirect_risk_full_flood(return_periods, indirect_damages_adapted_fu
     - total_id_full (float): The total indirect damages for the full flood scenario.
     """
     aggregated_df = pd.DataFrame.from_dict(indirect_damages_adapted_full, orient='index', columns=['Total indirect damage'])
-    aggregated_df = aggregated_df.sort_values('Total indirect damage', ascending=True)
+    # aggregated_df = aggregated_df.sort_values('Total indirect damage', ascending=True)
     aggregated_df['Total indirect damage'] = aggregated_df['Total indirect damage'] / 1e6
     rp_index = aggregated_df.index.str.split('_').str[-1]
     aggregated_df['Return Period'] = [return_periods['_'+index+'_'] for index in rp_index]
+    aggregated_df = aggregated_df.sort_values('Return Period', ascending=True)
     aggregated_df['Probability'] = [[1 / rp for rp in ts] for ts in aggregated_df['Return Period']]
     probabilities = pd.DataFrame([[1 / rp for rp in ts] for ts in aggregated_df['Return Period']])
     risk_l, risk_u = calculate_risk(probabilities, aggregated_df['Total indirect damage'], aggregated_df['Total indirect damage'])

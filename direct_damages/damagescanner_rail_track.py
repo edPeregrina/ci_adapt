@@ -98,13 +98,13 @@ def read_vul_maxdam(data_path,hazard_type,infra_type):
     vul_data = data_path / 'Vulnerability'
 
     if hazard_type in ['pluvial','fluvial']:  
-        curves = pd.read_excel(vul_data / 'Table_D2_Multi-Hazard_Fragility_and_Vulnerability_Curves_V1.0.0.xlsx',sheet_name = 'F_Vuln_Depth',index_col=[0],header=[0,1,2,3,4])
+        curves = pd.read_excel(vul_data / 'Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx',sheet_name = 'F_Vuln_Depth',index_col=[0],header=[0,1,2,3,4])
     elif hazard_type == 'windstorm':
-        curves = pd.read_excel(vul_data / 'Table_D2_Multi-Hazard_Fragility_and_Vulnerability_Curves_V1.0.0.xlsx',sheet_name = 'W_Vuln_V10m',index_col=[0],header=[0,1,2,3,4])
+        curves = pd.read_excel(vul_data / 'Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx',sheet_name = 'W_Vuln_V10m',index_col=[0],header=[0,1,2,3,4])
 
     infra_curves =  curves.loc[:, curves.columns.get_level_values('Infrastructure description').str.lower().str.contains(infra_type)]
     
-    maxdam = pd.read_excel(vul_data / 'Table_D3_Costs_V1.0.0.xlsx',sheet_name='Cost_Database',index_col=[0])
+    maxdam = pd.read_excel(vul_data / 'Table_D3_Costs_V1.1.0.xlsx',sheet_name='Cost_Database',index_col=[1])
     infra_descriptions=maxdam.index.get_level_values('Infrastructure description').str.lower().str.contains(infra_type)
     infra_maxdam = maxdam.loc[infra_descriptions,'Amount'].dropna()
     infra_maxdam = infra_maxdam[pd.to_numeric(infra_maxdam, errors='coerce').notnull()]
