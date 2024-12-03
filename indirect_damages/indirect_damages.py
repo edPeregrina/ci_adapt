@@ -234,36 +234,3 @@ nx.draw_networkx(G_v, pos,
         edge_color=None)
 
 
-#TODO: add background map, but needs to convert projection
-
-
-# import matplotlib.pyplot as plt
-# import cartopy.crs as ccrs
-# import networkx as nx
-
-# # Create a subplot axes
-# fig, ax = plt.subplots(subplot_kw={'projection': ccrs.Mercator()})
-
-# # Add a background image
-# ax.stock_img()
-
-# # Set the extent of the map to your area of interest
-# # Replace the coordinates with the boundaries of your area
-# ax.set_extent(bbox)
-
-# # Convert node positions to map coordinates
-# pos = {node: coordinates for node, coordinates in nx.get_node_attributes(G_v, 'pos').items()}
-
-# # Draw the network on the subplot axes
-# nx.draw_networkx(G_v, pos,
-#     nodelist=[u for u, attr in G_v.nodes(data=True) if 'demand' in attr and attr['demand'] != 0],
-#     edgelist=[(u, v) for u, v, attr in G.edges(data=True) if (type(u) == int and type(v) == int)],
-#     with_labels=False, 
-#     arrows=False,
-#     node_size=[int(abs(round(attr['demand']/500))) for u, attr in G_v.nodes(data=True) if 'demand' in attr and attr['demand'] != 0],
-#     node_color=['red' if attr['demand'] > 0 else 'blue' for u, attr in G_v.nodes(data=True) if 'demand' in attr and attr['demand'] != 0],
-#     width=1,
-#     edge_color=None)
-
-# # Show the plot
-# plt.show()

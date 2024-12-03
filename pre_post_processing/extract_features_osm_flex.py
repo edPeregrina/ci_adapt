@@ -26,7 +26,7 @@ dump_region = DICT_GEOFABRIK[iso3_code][1]
 dump_folder = root_folder / "osm_pbf"
 
 ## Clipping-related
-study_area_suffix = '_Rhine_Alpine_DEU'  # small case study area that works: '_ROTTERDAM_PORT'
+study_area_suffix = '_Rhine_Alpine_DEU'  # small case study area 
 clip_polygon_path = Path(
     rf'C:\Users\peregrin\osm\osm_bpf\polygon_Rhine_Alpine_DEU.geojson'
 )
@@ -77,43 +77,3 @@ except AssertionError as e:
     attributes=rail_track_attributes, other_tags_keys=rail_track_attributes['other_tags'], gdf=raw_rail_track_gdf
 )
     rail_track_gdf.to_file(rail_track_file, driver='GeoJSON')
-
-
-# # Create a railway networks with possible terminal nodes. This returns a complex network, as includes the rail tracks with the highest level of detail.
-# aggregation_range = 0.08 # in km
-# complex_rail_network = get_rail_network_with_terminals(network_gdf=rail_track_gdf, aggregation_range=aggregation_range)
-# output_name = f'study_area{study_area_suffix}'
-# with open(root_folder.joinpath(f'networks/complex_rail_network_{output_name}.geojson'), 'wb') as handle:
-#     pickle.dump(complex_rail_network, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-# # Creating separate gdf for viasualisation purposes
-# non_aggregate_terminals = complex_rail_network.nodes[
-#         (complex_rail_network.nodes['terminal_collection'].apply(lambda val: len(val) if isinstance(val,list) else 0) == 1)
-#     ]
-
-# aggregate_terminals = complex_rail_network.nodes[
-#         (complex_rail_network.nodes['terminal_collection'].apply(lambda val: len(val) if isinstance(val,list) else 0) > 1)
-#     ]
-
-# if aggregation_range > 0:
-#     demand_edges = complex_rail_network.edges[
-#             complex_rail_network.edges['demand_edge'] == 1
-#         ]
-
-#     actual_edges = complex_rail_network.edges[
-#             complex_rail_network.edges['demand_edge'] == 0
-#         ]
-# else:
-#     actual_edges = complex_rail_network.edges
-
-# # Visualise
-# rail_map = actual_edges.explore(tiles="CartoDB positron")
-# rail_map = demand_edges.explore(m=rail_map, color='springgreen')
-
-# if len(non_aggregate_terminals)>0:
-#     rail_map = non_aggregate_terminals.explore(m=rail_map, color='springgreen', marker_kwds={'radius':3})
-# rail_map = aggregate_terminals.explore(m=rail_map, color='darkgreen', marker_kwds={'radius':3})
-# rail_map
-
-## merge edges around nodes of degree=2 excluding bridges and tunnels
-# merged_rail_network = _merge_edges(network=complex_rail_network, excluded_edge_types=['bridge', 'tunnel']) #Must add network= to pass excluded_edge_types as a keyword argument
