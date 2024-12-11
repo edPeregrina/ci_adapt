@@ -42,8 +42,7 @@ def buffer_assets(assets,buffer_size=0.00083):
     return assets
 
 
-def get_damage_per_asset(asset,hazard_numpified,asset_geom,hazard_intensity,fragility_values,maxdams):
-    #TODO does not return tuple but list of the same length as maxdams.
+def get_damage_per_asset(asset,hazard_numpified,asset_geom,hazard_intensity,fragility_values,maxdams, double_track_factor): #added double rail factor (0.5) as each rail tracks of double rail are separate assets
     """
     Calculate damage for a given asset based on hazard information.
     Arguments:
@@ -55,7 +54,7 @@ def get_damage_per_asset(asset,hazard_numpified,asset_geom,hazard_intensity,frag
         *curve*: Pandas DataFrame representing the curve for the asset type.
         *maxdam*: Maximum damage value. #maxdams list of maxdam
     Returns:
-        *tuple*: A tuple containing the asset index or identifier and the calculated damage.
+        *list*: A list containing the asset index or identifier and the calculated damage.
     """
     
     # find the exact hazard overlays:
@@ -69,17 +68,17 @@ def get_damage_per_asset(asset,hazard_numpified,asset_geom,hazard_intensity,frag
     else:
         if asset_geom.geom_type == 'LineString':
             overlay_meters = shapely.length(shapely.intersection(get_hazard_points[:,1],asset_geom)) # get the length of exposed meters per hazard cell
-            return [np.sum((np.interp(np.float16(get_hazard_points[:,0]),hazard_intensity,fragility_values))*overlay_meters*maxdam_asset) for maxdam_asset in maxdams] #return asset number, total damage for asset number (damage factor * meters * max. damage)
+            return [np.sum((np.interp(np.float16(get_hazard_points[:,0]),hazard_intensity,fragility_values))*overlay_meters*maxdam_asset*double_track_factor) for maxdam_asset in maxdams] #return asset number, total damage for asset number (damage factor * meters * max. damage)
         elif asset_geom.geom_type in ['MultiPolygon','Polygon']:
             overlay_m2 = shapely.area(shapely.intersection(get_hazard_points[:,1],asset_geom))
             return [np.sum((np.interp(np.float16(get_hazard_points[:,0]),hazard_intensity,fragility_values))*overlay_m2*maxdam_asset) for maxdam_asset in maxdams]
         elif asset_geom.geom_type == 'Point':
             return [np.sum((np.interp(np.float16(get_hazard_points[:,0]),hazard_intensity,fragility_values))*maxdam_asset) for maxdam_asset in maxdams]
 
-def read_hazard_data(data_path,hazard_type,country='Germany',defended=False,subfolders=None):
+def read_hazard_data(data_path,hazard_type='fluvial',country='Germany',defended=False,subfolders=None):
 
     if hazard_type == 'fluvial' and defended == False:
-        hazard_data = data_path / 'Floods' / country / 'fluvial_undefended' / subfolders
+        hazard_data = data_path 
         #return [file for file in hazard_data.iterdir() if file.is_file() and file.suffix == '.shp']
         return [file for file in hazard_data.iterdir() if file.is_file() and file.suffix == '.geojson']
         #return list(hazard_data.iterdir())
@@ -99,13 +98,13 @@ def read_vul_maxdam(data_path,hazard_type,infra_type):
     vul_data = data_path / 'Vulnerability'
 
     if hazard_type in ['pluvial','fluvial']:  
-        curves = pd.read_excel(vul_data / 'Table_D2_Multi-Hazard_Fragility_and_Vulnerability_Curves_V1.0.0.xlsx',sheet_name = 'F_Vuln_Depth',index_col=[0],header=[0,1,2,3,4])
+        curves = pd.read_excel(vul_data / 'Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx',sheet_name = 'F_Vuln_Depth',index_col=[0],header=[0,1,2,3,4])
     elif hazard_type == 'windstorm':
-        curves = pd.read_excel(vul_data / 'Table_D2_Multi-Hazard_Fragility_and_Vulnerability_Curves_V1.0.0.xlsx',sheet_name = 'W_Vuln_V10m',index_col=[0],header=[0,1,2,3,4])
+        curves = pd.read_excel(vul_data / 'Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx',sheet_name = 'W_Vuln_V10m',index_col=[0],header=[0,1,2,3,4])
 
     infra_curves =  curves.loc[:, curves.columns.get_level_values('Infrastructure description').str.lower().str.contains(infra_type)]
     
-    maxdam = pd.read_excel(vul_data / 'Table_D3_Costs_V1.0.0.xlsx',sheet_name='Cost_Database',index_col=[0])
+    maxdam = pd.read_excel(vul_data / 'Table_D3_Costs_V1.1.0.xlsx',sheet_name='Cost_Database',index_col=[1])
     infra_descriptions=maxdam.index.get_level_values('Infrastructure description').str.lower().str.contains(infra_type)
     infra_maxdam = maxdam.loc[infra_descriptions,'Amount'].dropna()
     infra_maxdam = infra_maxdam[pd.to_numeric(infra_maxdam, errors='coerce').notnull()]
@@ -116,9 +115,7 @@ def read_vul_maxdam(data_path,hazard_type,infra_type):
 def read_flood_map(flood_map_path):
 
     # check if vector and return path, and vectorize if raster"
-    print('Flood map path: '+str(flood_map_path))
     if '.shp' or '.geojson' in str(flood_map_path):
-        # [Q1 - Elco] - should I try to re-vectorize/will it help overlay speed?
         return flood_map_path
     
     else: print('Vectorizing...')
