@@ -1,21 +1,22 @@
-# Direct damages calculation for CI Adapt
 # Imports
-from direct_damages import damagescanner_rail_track as ds
-from ci_adapt_utilities import *
 
 import sys
 sys.path.append(r'C:\repos\snkit\src')
 sys.path.append(r'C:\repos\ra2ce')
 sys.path.append(r'C:\repos\ra2ce_multi_network')
+sys.path.append(r'C:\repos\ci_adapt')
+from direct_damages import damagescanner_rail_track as ds
+from ci_adapt_utilities import *
 from matplotlib import pyplot as plt
 from ra2ce_multi_network.simplify_rail import *
 from ra2ce_multi_network.simplify_rail import _network_to_nx
+import os
+import math
 
-
-# Load default configuration and model parameters
 # Load configuration with ini file (created running config.py)
 config_file=r'C:\repos\ci_adapt\config_ci_adapt_test.ini'
 hazard_type, infra_type, country_code, country_name, hazard_data_subfolders, asset_data, vulnerability_data = load_config(config_file)
+
 # Define paths
 data_path = Path(pathlib.Path(r'C:\Users\peregrin\OneDrive - Stichting Deltares\Documents\PhD Daniel Shared\Papers\Paper 1 - Adaptation Framework\Data\test'))
 interim_data_path = data_path / 'interim' / 'collected_flood_runs'
@@ -32,19 +33,15 @@ infra_curves, maxdams = ds.read_vul_maxdam(data_path, hazard_type, infra_type)
 max_damage_tables = pd.read_excel(data_path / vulnerability_data / 'Table_D3_Costs_V1.1.0.xlsx',sheet_name='Cost_Database',index_col=[0])
 print(f'Found matching infrastructure curves for: {infra_type}')
 # Read hazard data (Rauthe M, et al. (2020): Climate impact analysis of the federal transport system in the context of floods: Final report of the key topic flood risks (SP-103) in topic area 1 of the BMVI expert network. 136 pages. DOI: 10.5675/ExpNRM2020.2020.04)
-# n_drive_dpath=Path(r'N:\Projects\11209000\11209175\B. Measurements and calculations\Data\basin_flood_hazard_maps')
 test_haz_path = data_path / r'Floods\Germany\basin_intersections'
 hazard_data_list = ds.read_hazard_data(test_haz_path, hazard_type, country=country_name, subfolders=None)
 print(f'Found {len(hazard_data_list)} hazard maps.')
-
-# Overlay hazard and asset data
 # Calculate direct damage by asset (Koks. E.E. (2022). DamageScanner: Python tool for natural hazard damage assessments. Zenodo. http://doi.org/10.5281/zenodo.2551015)
 collect_output={}
 for i, single_footprint in enumerate(hazard_data_list):
     hazard_name = single_footprint.parts[-1].split('.')[0]
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f'{timestamp} - Reading hazard map {i+1} of {len(hazard_data_list)}: {hazard_name}')
-
     try:
         collect_output[hazard_name] = process_hazard_data(single_footprint, hazard_type, assets, interim_data_path, infra_curves, max_damage_tables, curve_types, infra_type, type_dict, geom_dict, asset_options=asset_options, rp_spec_priority=rp_spec_priority)
     except Exception as e:
@@ -61,15 +58,8 @@ else: print('No output collected')
 # Save the data to csv files
 csv_output_path=f'collected_run_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
 pd.DataFrame.from_dict(collect_output).to_csv(interim_data_path / csv_output_path)
-# if collected_output variable doesnt exist, load from pickle file
-if 'collect_output' not in locals():
-    collect_output_path = f'{interim_data_path}/sample_collected_run.pkl'
-    with open(collect_output_path, 'rb') as f:
-        collect_output = pickle.load(f)
-
-# Define paths and load data
+# Update interim data path
 interim_data_path = data_path / 'interim' / 'indirect_damages'
-
 # Reproject assets to match route data projection
 assets_4326=assets.to_crs(4326)
 assets_4326['geometry']=assets_4326['geometry'].make_valid()
@@ -86,11 +76,9 @@ net=add_topology(network=net)
 net.set_crs(4326)
 net.edges=net.edges.to_crs(3857)
 net.nodes=net.nodes.to_crs(3857)
-
 merged_rail_network=net
 # Create graph from network
 merged_rail_graph = _network_to_nx(merged_rail_network)
-
 # Create a MultiDiGraph from the graph
 graph_0=nx.MultiDiGraph(merged_rail_graph)
 # Removing floats from osm_id
@@ -157,7 +145,6 @@ for hazard_map, asset_dict in collect_output.items():
     impact=calculate_economic_impact_shortest_paths(hazard_map, graph_v, shortest_paths, disrupted_shortest_paths[hazard_map], average_train_load_tons, average_train_cost_per_ton_km, average_road_cost_per_ton_km)
     event_impacts[hazard_map]=impact
     print(hazard_map, impact)
-
 #now repeat collecting all the disrupted edges accross all maps with the same return period
 all_disrupted_edges={}
 all_disrupted_shortest_paths={}
@@ -190,82 +177,8 @@ with open(interim_data_path / 'all_disrupted_edges.pkl', 'wb') as f:
 with open(interim_data_path / 'full_flood_event.pkl', 'wb') as f:
     pickle.dump(full_flood_event, f)
 
-files = [file for file in os.listdir(data_path / 'interim/collected_flood_runs') if file.endswith('.pkl') and file.startswith('overlay')]
-basins_list=list(set([int(file.split('.')[0].split('_')[-1]) for file in files]))
-basin_dict = {}
-for basin in basins_list:
-    basin_dict[basin] = {}
-    for key in event_impacts.keys():
-        if not str(basin) in key:
-            continue
-        if str(basin) in key:
-            basin_dict[basin][key.split('_RW')[-1][0:3]] = event_impacts[key]
-
-for rp in return_period_dict.keys():
-    # add rp as a key to all nested dictionaries with 0 as a value if the rp is not already a key
-    for basin in basin_dict.keys():
-        if rp not in basin_dict[basin].keys():
-            basin_dict[basin][rp] = 0
-
- 
-
-
-# save G and shortest paths to pickle files
-pickle.dump(graph_0, open(interim_data_path / 'graph_0.pkl', 'wb'))
-pickle.dump(shortest_paths, open(interim_data_path / 'shortest_paths.pkl', 'wb'))
-pickle.dump(disrupted_edges_by_basin, open(interim_data_path / 'disrupted_edges_by_basin.pkl', 'wb'))
-pickle.dump(disrupted_shortest_paths, open(interim_data_path / 'disrupted_shortest_paths.pkl', 'wb'))
-pickle.dump(event_impacts, open(interim_data_path / 'event_impacts.pkl', 'wb'))
-print('Data saved to pickle files.')
-
-def plot_shortest_paths(assets, graph, shortest_paths, colors):
-    from lonboard import Map, PathLayer, ScatterplotLayer
-    layers_assets=[]
-    # Generate od layer for visualization
-    od_geoms=[attr['geometry'] for u,attr in graph.nodes(data=True) if 'name' in attr.keys()]
-    od_geoms_gdf=gpd.GeoDataFrame(geometry=od_geoms).set_crs(epsg=3857).to_crs(4326)
-    
-    layer_od = ScatterplotLayer.from_geopandas(od_geoms_gdf, get_fill_color=colors['red_danger'], get_radius=100, opacity=0.5, auto_highlight=False)
-    # Create layer for assets for visualization
-    layer_assets = PathLayer.from_geopandas(assets.drop(columns=['other_tags']), get_width=5, get_color=colors['grey_400'], auto_highlight=True, )
-    layers_assets.append(layer_assets)
-    # layer_shortest_path_assets = PathLayer.from_geopandas(assets_sps.drop(columns=['buffered', 'other_tags']), get_width=80, get_color=colors['black'], auto_highlight=True)
-    if shortest_paths is not None:
-        shortest_paths_geoms = []
-        for od,(path,demand) in shortest_paths.items():
-            for u in range(len(path)-1):
-                edge = graph.get_edge_data(path[u], path[u+1])
-                if edge is not None:
-                    for i in range(len(edge)):
-                        edge_data = edge[i]
-                        edge_geom = edge_data['geometry']
-                        shortest_paths_geoms.append((od,demand, edge_geom))
-                    
-        shortest_paths_gdf = gpd.GeoDataFrame(shortest_paths_geoms, columns=['od','demand', 'geometry']).set_crs(epsg=3857)
-        layers_sps = PathLayer.from_geopandas(shortest_paths_gdf, get_width=8, get_color=colors['black'], auto_highlight=True)
-        layers_assets.append(layers_sps)
-    
-    layers=[]
-    if layer_assets is not None:
-        layers.extend(layers_assets)
-    else:
-        print('No asset layer')
-    Voyager = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json'
-
-    if layer_od is not None:
-        layers.append(layer_od)
-    else:
-        print('No od layer')
-    m = Map(layers, show_tooltip=True, basemap_style=Voyager, view_state={"longitude": 7.91, "latitude": 49.91, "zoom": 11})
-
-
-    return m
-
-plot_shortest_paths(assets, graph_0, shortest_paths, miraca_colors)
-
-
+# Update interim data path
 interim_data_path = data_path / 'interim' / 'collected_flood_runs'
-
 # Load data from baseline impact assessment
 shortest_paths = pickle.load(open(data_path / 'interim' / 'indirect_damages' / 'shortest_paths.pkl', 'rb'))
 disrupted_edges_by_basin = pickle.load(open(data_path / 'interim' / 'indirect_damages' / 'disrupted_edges_by_basin.pkl', 'rb'))
@@ -276,7 +189,6 @@ full_flood_event=pickle.load(open(data_path / 'interim' / 'indirect_damages' / '
 all_disrupted_edges = pickle.load(open(data_path / 'interim' / 'indirect_damages' / 'all_disrupted_edges.pkl', 'rb'))
 collect_output = pickle.load(open(data_path / 'interim' / 'collected_flood_runs' / 'sample_collected_run.pkl', 'rb'))
 print('Loaded data from baseline impact assessment')
-
 graph_v0=create_virtual_graph(graph_r0)
 graph_v=graph_v0.copy()
 adaptations={}
@@ -285,10 +197,6 @@ adaptations['l1_trib'] = {'l1_l2_adapt_path': data_path/r'input\adaptations\l1_t
 adaptations['l2_trib'] = {'l1_l2_adapt_path': data_path/r'input\adaptations\l2_tributary.geojson', 'added_links':[], 'l4_adapt_path': None}
 adaptations['l3_trib'] = {'l1_l2_adapt_path': None, 'added_links':[(4424116, 219651487), (219651487, 111997047)], 'l4_adapt_path': None}
 adaptations['l4_trib'] = {'l1_l2_adapt_path': None, 'added_links':[], 'l4_adapt_path': data_path/r'input\adaptations\l4_tributary.geojson'}
-# adaptations['l1_rhine'] = {'l1_l2_adapt_path': data_path/r'input\adaptations\l1_rhine.geojson', 'added_links':[], 'l4_adapt_path': None}
-# adaptations['l2_rhine'] = {'l1_l2_adapt_path': data_path/r'input\adaptations\l2_rhine.geojson', 'added_links':[], 'l4_adapt_path': None}
-# adaptations['l3_rhine'] = {'l1_l2_adapt_path': None, 'added_links':[(112044105, 110947346)], 'l4_adapt_path': None}
-# adaptations['l4_rhine'] = {'l1_l2_adapt_path': None, 'added_links':[], 'l4_adapt_path': data_path/r'input\adaptations\l4_rhine.geojson'}
 # Define empty dictionaries to store adaptation results
 direct_damages_adapted_dict = {}
 indirect_damages_adapted_dict = {}
@@ -301,7 +209,8 @@ print(f"Processing {len(adaptations)} scenarios:")
 for adapt_id in adaptations.keys():
     print('- ',adapt_id)
 
-for adapt_id in tqdm(adaptations.keys(), desc='Adaptation runs', total=len(adaptations)):
+# for adapt_id in tqdm(adaptations.keys(), desc='Adaptation runs', total=len(adaptations)):
+for adapt_id in adaptations.keys():
     adaptations_df_path = data_path / 'interim' / 'adaptations' / f'{adapt_id}_adaptations.csv'
 
     if adaptations_df_path.exists():
@@ -352,12 +261,14 @@ for adapt_id in tqdm(adaptations.keys(), desc='Adaptation runs', total=len(adapt
     indirect_damages_adapted_dict[adapt_id] = indirect_damages_adapted
     indirect_damages_adapted_full_dict[adapt_id] = indirect_damages_adapted_full
     adapted_assets_dict[adapt_id] = adapted_assets
-    adaptation_costs[adapt_id] = {'l1': l1_adaptation_costs, 'l2': l2_adaptation_costs, 'l3': l3_adaptation_costs}
+    adaptation_costs[adapt_id] = {'l1': l1_adaptation_costs, 
+                                  'l2': l2_adaptation_costs, 
+                                  'l3': l3_adaptation_costs}
     adaptations_df.to_csv(data_path / 'interim' / 'adaptations' / f'{adapt_id}_adaptations.csv')
   
 # Report output dataframe
 output_df = pd.DataFrame.from_dict([direct_damages_adapted_dict, indirect_damages_adapted_dict, indirect_damages_adapted_full_dict, adapted_assets_dict, adaptation_costs])
-output_df
+
 # Save results
 for adapt_id in adaptations.keys():
     if not adapt_id in direct_damages_adapted_dict.keys():
@@ -381,19 +292,6 @@ for adapt_id in adaptations.keys():
         pickle.dump(adaptation_costs[adapt_id], f)
     print(f'Saved results for adaptation: {adapt_id}')
 
-# Imports
-from ci_adapt_utilities import *
-import os
-import matplotlib.pyplot as plt
-import math
-# Load configuration with ini file (created running config.py)
-config_file=r'C:\repos\ci_adapt\config_ci_adapt_test.ini'
-hazard_type, infra_type, country_code, country_name, hazard_data_subfolders, asset_data, vulnerability_data = load_config(config_file)
-# Define paths and load data
-# data_path = Path(pathlib.Path.home().parts[0]) / 'Data'
-data_path = Path(pathlib.Path(r'C:\Users\peregrin\OneDrive - Stichting Deltares\Documents\PhD Daniel Shared\Papers\Paper 1 - Adaptation Framework\Data\test'))
-interim_data_path = data_path / 'interim' / 'collected_flood_runs'
-assets, geom_dict, miraca_colors, return_period_dict, adaptation_unit_costs, rp_spec_priority, average_road_cost_per_ton_km, average_train_cost_per_ton_km, average_train_load_tons = startup_ci_adapt(data_path, config_file, interim_data_path)
 shortest_paths, disrupted_edges_by_basin, graph_r0, disrupted_shortest_paths, event_impacts, full_flood_event, all_disrupted_edges, collect_output = load_baseline_impact_assessment(data_path)
 adaptations_df_dir = data_path / 'interim' / 'adaptations'
 basins_path = data_path.parent / r'external\hybas_eu_lev01-12_v1c\hybas_eu_lev08_v1c_valid.shp'
@@ -405,8 +303,9 @@ increase_factors_bounds = {'lower bound':{'_H_': 2, '_M_': 1.75, '_L_': 1.82},
                             'mean':{'_H_': 2, '_M_': 4.21, '_L_': 5.86},
                             'upper bound':{'_H_': 2, '_M_': 6.67, '_L_': 9.09}}
 num_years = 100
-# return_period_dict = {'_H_': 10,'_M_': 100,'_L_': 200}
+
 dynamic_rps={inc_f:calculate_dynamic_return_periods(return_period_dict, num_years, increase_factors_bounds[inc_f]) for inc_f in increase_factors_bounds.keys()}
+discount_rate_percent = 0 # 2.5
 regions_gdf = gpd.read_file(regions_path)
 basins_gdf_0 = load_basins_in_region(basins_path, regions_path, clipping=True)
 basin_list_tributaries, basin_list_full_flood = find_basin_lists(basins_gdf_0)
@@ -416,20 +315,18 @@ overlay_files = [file for file in os.listdir(interim_data_path) if file.endswith
 basins_list = list(set([int(file.split('.')[0].split('_')[-1]) for file in overlay_files]))
 #Calculate baseline results
 adapt_id='baseline'
-
 baseline_results_dict = {}
 eadD_bl_by_ts_basin_incf = {}
 eadIT_bl_by_ts_basin_incf = {}
-
 direct_damages_adapted, indirect_damages_adapted, indirect_damages_adapted_full, adapted_assets, adaptation_costs, adaptations_df = load_adaptation_impacts(adapt_id, data_path)
 total_damages_adapted_df_mill=process_raw_adaptations_output(direct_damages_baseline_sum, direct_damages_adapted, event_impacts, indirect_damages_adapted, adaptations_df)
 
 for inc_f in increase_factors_bounds.keys():
     return_periods = dynamic_rps[inc_f] 
 
-    ead_y0_dd_bl_all, ead_y100_dd_bl_all, total_dd_bl_all, eadD_bl_by_ts_basin_incf[inc_f] = compile_direct_risk(inc_f, return_periods, basins_list, collect_output, total_damages_adapted_df_mill)
-    ead_y0_id_bl_all, ead_y100_id_bl_all, total_id_bl_all,  eadIT_bl_by_ts_basin_incf[inc_f] = compile_indirect_risk_tributaries(inc_f, return_periods, basins_list, basin_list_tributaries, collect_output, total_damages_adapted_df_mill)
-    ead_y0_id_bl_full, ead_y100_id_bl_full, total_id_bl_full = compile_indirect_risk_full_flood(return_periods, indirect_damages_adapted_full)
+    ead_y0_dd_bl_all, ead_y100_dd_bl_all, total_dd_bl_all, eadD_bl_by_ts_basin_incf[inc_f] = compile_direct_risk(inc_f, return_periods, basins_list, collect_output, total_damages_adapted_df_mill, discount_rate_percent)
+    ead_y0_id_bl_all, ead_y100_id_bl_all, total_id_bl_all,  eadIT_bl_by_ts_basin_incf[inc_f] = compile_indirect_risk_tributaries(inc_f, return_periods, basins_list, basin_list_tributaries, collect_output, total_damages_adapted_df_mill, discount_rate_percent)
+    ead_y0_id_bl_full, ead_y100_id_bl_full, total_id_bl_full = compile_indirect_risk_full_flood(return_periods, indirect_damages_adapted_full, discount_rate_percent)
 
     baseline_results_dict[inc_f] = {'ead_y0_dd_bl_all': ead_y0_dd_bl_all, 'ead_y100_dd_bl_all': ead_y100_dd_bl_all, 'total_dd_bl_all': total_dd_bl_all,
                                         'ead_y0_id_bl_all': ead_y0_id_bl_all[0], 'ead_y100_id_bl_all': ead_y100_id_bl_all[0], 'total_id_bl_all': total_id_bl_all[0],
@@ -437,12 +334,10 @@ for inc_f in increase_factors_bounds.keys():
 # Calculate results for adapted conditions
 adaptation_files = [file for file in os.listdir(adaptations_df_dir) if file.endswith('.csv')]
 adapt_ids = [file.split('_adaptations')[0] for file in adaptation_files]
-
 adapted_results_dict = {}
 adaptation_cost_dict = {}
 eadD_ad_by_ts_basin_incf = {}
 eadIT_ad_by_ts_basin_incf = {}
-
 for adapt_id in adapt_ids:
     direct_damages_adapted, indirect_damages_adapted, indirect_damages_adapted_full, adapted_assets, adaptation_costs, adaptations_df = load_adaptation_impacts(adapt_id, data_path)
     total_damages_adapted_df_mill=process_raw_adaptations_output(direct_damages_baseline_sum, direct_damages_adapted, event_impacts, indirect_damages_adapted, adaptations_df)
@@ -460,16 +355,17 @@ for adapt_id in adapt_ids:
 
         print(adapt_id, inc_f)
 
-        ead_y0_dd_ad_all, ead_y100_dd_ad_all, total_dd_ad_all, eadD_ad_by_ts_basin_incf[adapt_id][inc_f]  = compile_direct_risk(inc_f, return_periods, basins_list, collect_output, total_damages_adapted_df_mill)
-        
-        ead_y0_id_ad_all, ead_y100_id_ad_all, total_id_ad_all, eadIT_ad_by_ts_basin_incf[adapt_id][inc_f] = compile_indirect_risk_tributaries(inc_f, return_periods, basins_list, basin_list_tributaries, collect_output, total_damages_adapted_df_mill)
-        ead_y0_id_ad_full, ead_y100_id_ad_full, total_id_ad_full = compile_indirect_risk_full_flood(return_periods, indirect_damages_adapted_full)
+        ead_y0_dd_ad_all, ead_y100_dd_ad_all, total_dd_ad_all, eadD_ad_by_ts_basin_incf[adapt_id][inc_f]  = compile_direct_risk(inc_f, return_periods, basins_list, collect_output, total_damages_adapted_df_mill, discount_rate_percent=discount_rate_percent)
+        ead_y0_id_ad_all, ead_y100_id_ad_all, total_id_ad_all, eadIT_ad_by_ts_basin_incf[adapt_id][inc_f] = compile_indirect_risk_tributaries(inc_f, return_periods, basins_list, basin_list_tributaries, collect_output, total_damages_adapted_df_mill, discount_rate_percent=discount_rate_percent)
+        ead_y0_id_ad_full, ead_y100_id_ad_full, total_id_ad_full = compile_indirect_risk_full_flood(return_periods, indirect_damages_adapted_full, discount_rate_percent=discount_rate_percent)
 
         adapted_results_dict[adapt_id][inc_f] = {'ead_y0_dd_ad_all': ead_y0_dd_ad_all, 'ead_y100_dd_ad_all': ead_y100_dd_ad_all, 'total_dd_ad_all': total_dd_ad_all,
                                                 'ead_y0_id_ad_all': ead_y0_id_ad_all[0], 'ead_y100_id_ad_all': ead_y100_id_ad_all[0], 'total_id_ad_all': total_id_ad_all[0],
                                                 'ead_y0_id_ad_full': ead_y0_id_ad_full, 'ead_y100_id_ad_full': ead_y100_id_ad_full, 'total_id_ad_full': total_id_ad_full}
-# Process adaptation costs and benefits for different levels
-processed_adaptation_costs = process_adaptation_costs(adaptation_cost_dict)
+# Process adaptation costs and benefits for different levels and incorporate yearly maintenance costs
+yearly_maintenance_percent = {'l1': 0.0, 'l2': 0.0, 'l3': 0.0}
+maintenance_pc_dict = discount_maintenance_costs(yearly_maintenance_percent, discount_rate_percent, num_years)
+processed_adaptation_costs = process_adaptation_costs(adaptation_cost_dict, maintenance_pc_dict)
 
 # Find the avoided damages
 avoided_damages_dict = {}
@@ -520,7 +416,6 @@ bcr_df.loc[:, 'bcr_upper'] = bcr_df['bcr'].apply(lambda x: x[1] if np.all(x != 0
 
 bcr_df.to_csv(data_path / 'output' / 'bcr_df.csv')
 
-bcr_df.head(7)    
 adapt_ids=benefits_dict.keys()
 bcr_df = pd.DataFrame()
 
@@ -550,7 +445,6 @@ bcr_df.loc[:, 'bcr_upper'] = bcr_df['bcr'].apply(lambda x: x[1] if np.all(x != 0
 
 bcr_df.to_csv(data_path / 'output' / 'bcr_df.csv')
 
-bcr_df    
 # Find adaptations with BCR greater than 1 under all increase factors
 adaptations_with_bcr_greater_than_1 = []
 for adapt_id in adapt_ids_run:
@@ -588,7 +482,7 @@ avoided_damages_df.columns = ['Avoided Direct Y0 [M€/y]', 'Avoided Direct Y100
 avoided_damages_df.index.names = ['Adaptation, Climate Change Increase Factor']
 
 avoided_damages_df.to_csv(data_path / 'output' / 'avoided_damages_df.csv')
-avoided_damages_df
+
 od_geoms = get_od_geoms_from_sps(shortest_paths, graph_r0)
 od_geoms_plot= gpd.GeoDataFrame(od_geoms)
 od_geoms_plot.crs = 'EPSG:3857'
@@ -626,297 +520,3 @@ basins_gdf['EAD_ID_bl_t0'] = [0.0 if not basin in eadIT_bl_by_ts_basin_incf['mea
 basins_gdf['EAD_ID_bl_t100'] = [0.0 if not basin in eadIT_bl_by_ts_basin_incf['mean'].keys() else eadIT_bl_by_ts_basin_incf['mean'][basin].values[-1][0] for basin in basin_list]
 
 basins_gdf_reduced = basins_gdf[['HYBAS_ID', 'geometry', 'Average EAD_D_bl_t0', 'Average EAD_D_bl_t100', 'EAD_ID_bl_t0', 'EAD_ID_bl_t100']]
-basins_gdf_reduced.head(3)
-import matplotlib.colors as mcolors
-import matplotlib.patches as mpatches
-import matplotlib as mpl
-
-#Plotting prep
-dic_colors = {'H': '#f03b20', 'M': '#feb24c', 'L': '#ffeda0'}
-main_basin_list = basin_list_full_flood - set(basin_list_tributaries)
-assets_4326_clipped = gpd.clip(assets.to_crs(4326), regions_gdf)
-basins_gdf_reduced_clipped = gpd.clip(basins_gdf_reduced, regions_gdf)
-# Set the font colors
-default_mpl_color = miraca_colors['grey_900']
-mpl.rcParams['text.color'] = default_mpl_color
-mpl.rcParams['axes.labelcolor'] = default_mpl_color
-mpl.rcParams['xtick.color'] = default_mpl_color
-mpl.rcParams['ytick.color'] = default_mpl_color
-
-fontsize_set = {
-    'large': {'title': 42, 'label': 38, 'legend': 20, 'ticks': 28, 'legend_title': 20, 'legend_label': 20, 'suptitle': 16},
-    'small': {'title': 24, 'label': 24, 'legend': 18, 'ticks': 16, 'legend_title': 18, 'legend_label': 18, 'suptitle': 12},
-    'default_miraca': {'title': 42, 'label': 38, 'legend': 20, 'ticks': 28, 'legend_title': 20, 'legend_label': 20, 'suptitle': 16}
-}
-
-mainfont = {'fontname': 'Arial'}
-#mainfont = {'fontname': 'Space Grotesk'}
-basefont = {'fontname': 'Calibri'}
-
-# Define the size set to use
-size_set = fontsize_set['small']  # Change to 'large' or 'small' as needed
-# Plot only with full dataset
-# Plot
-fig, axs = plt.subplots(2, 2, figsize=(20, 20))
-# Direct damages
-# Plot for year 0
-ax = 0, 0
-vmax_dd = math.ceil(max([eadD_bl_by_ts_basin_incf['mean'][basin].values[0].max() for basin in eadD_bl_by_ts_basin_incf['mean']]) / 10.0) * 10
-basins_gdf_reduced_clipped.plot(column='Average EAD_D_bl_t0', ax=axs[ax], legend=False, cmap='Blues', vmin=0, vmax=vmax_dd, alpha=0.8)
-basins_gdf_reduced_clipped.plot(ax=axs[ax], edgecolor=miraca_colors['grey_200'], facecolor="None", alpha=0.5, linewidth=1)
-axs[ax].set_title('Current climate', fontsize=size_set['title'], fontweight='bold', **mainfont)
-# Plot for year 100
-ax = 0, 1
-valid_asset_ids = [asset_id for asset_id in asset_ids if asset_id in assets_4326_clipped.index]
-basins_gdf_reduced_clipped.plot(column='Average EAD_D_bl_t100', ax=axs[ax], legend=False, cmap='Blues', vmin=0, vmax=vmax_dd, alpha=0.8)
-basins_gdf_reduced_clipped.plot(ax=axs[ax], edgecolor=miraca_colors['grey_200'], facecolor="None", alpha=0.5, linewidth=1)
-axs[ax].set_title('Future climate (Future B)', fontsize=size_set['title'], fontweight='bold', **mainfont)
-# Add color bar and legend
-sm1 = plt.cm.ScalarMappable(cmap='Blues', norm=plt.Normalize(vmin=0, vmax=vmax_dd))
-cbar1 = plt.colorbar(sm1, ax=axs[ax])
-cbar1.set_label('Direct Expected Annual Damages [Million €/year]', fontsize=size_set['label'], **mainfont)
-cbar1.ax.tick_params(labelsize=size_set['ticks'])
-rp_letter_equiv = {'H': 'RP10', 'M': 'RP100', 'L': 'RP200'}
-legend_elements = [mpatches.Patch(facecolor=dic_colors[rp_def], edgecolor='k', label=rp_letter_equiv[rp_def]) for rp_def in disrupted_asset_ids_filt.keys()]
-axs[ax].legend(handles=legend_elements, title='Disrupted Assets', loc='upper left', fontsize=size_set['legend_label'], title_fontsize=size_set['legend_title'])
-plt.setp(axs[ax].texts, family='Space Grotesk')
-
-# Indirect losses, tributary basins
-# Plot for year 0
-ax = 1, 0
-vmax_id = np.ceil(max([eadIT_bl_by_ts_basin_incf['mean'][basin].values[0].max() for basin in eadIT_bl_by_ts_basin_incf['mean']]))
-basins_gdf_reduced_clipped.plot(column='EAD_ID_bl_t0', ax=axs[ax], legend=False, cmap='Purples', vmin=0, vmax=vmax_id, alpha=0.8)
-basins_gdf_reduced_clipped.plot(ax=axs[ax], edgecolor=miraca_colors['grey_200'], facecolor="None", alpha=0.5, linewidth=1)
-basins_gdf_reduced_clipped[basins_gdf_reduced_clipped['HYBAS_ID'].isin(main_basin_list)].plot(ax=axs[ax], edgecolor='None', facecolor=miraca_colors['grey_500'], alpha=0.5, linewidth=1, hatch='//')
-axs[ax].set_title(' ', fontsize=size_set['title'])
-# Plot for year 100
-ax = 1, 1
-basins_gdf_reduced_clipped.plot(column='EAD_ID_bl_t100', ax=axs[ax], legend=False, cmap='Purples', vmin=0, vmax=vmax_id, alpha=0.8)
-basins_gdf_reduced_clipped.plot(ax=axs[ax], edgecolor=miraca_colors['grey_200'], facecolor="None", alpha=0.5, linewidth=1)
-basins_gdf_reduced_clipped[basins_gdf_reduced_clipped['HYBAS_ID'].isin(main_basin_list)].plot(ax=axs[ax], edgecolor='None', facecolor=miraca_colors['grey_500'], alpha=0.5, linewidth=1, hatch='//')
-axs[ax].set_title(' ', fontsize=size_set['title'])
-# Add color bar
-sm2 = plt.cm.ScalarMappable(cmap='Purples', norm=plt.Normalize(vmin=0, vmax=vmax_id))
-cbar2 = plt.colorbar(sm2, ax=axs[ax], ticks=[0, 1, 2, 3])
-cbar2.set_label('Indirect Expected Annual Losses [Million €/year]', fontsize=size_set['label'], **mainfont)
-cbar2.ax.tick_params(labelsize=size_set['ticks'])
-
-# Plot static content
-for ax in axs.flat:
-    assets_4326_clipped.plot(ax=ax, color=miraca_colors['black'], lw=2)
-    for rp_def, asset_ids in disrupted_asset_ids_filt.items():
-        valid_asset_ids = [asset_id for asset_id in asset_ids if asset_id in assets_4326_clipped.index]
-        assets_4326_clipped.loc[valid_asset_ids].plot(ax=ax, color=dic_colors[rp_def], lw=3)
-    regions_gdf.boundary.plot(ax=ax, edgecolor=miraca_colors['blue_900'], linestyle='-', linewidth=0.5)
-    ax.set_axis_off()
-
-# Label as A, B, C, D in the bottom right corner with a grey background and black text
-for i, ax in enumerate(axs.flat):
-    ax.text(0.98, 0.05, f' {chr(65+i)} ', transform=ax.transAxes, fontsize=size_set['title'], fontweight='regular', color='black', ha='center', va='center', bbox=dict(facecolor='lightgrey', edgecolor='black', boxstyle='square,pad=0.2'))
-plt.tight_layout()
-plt.suptitle('Direct and Indirect Damages and Losses at Year 0 and 100 (Future B) [Baseline]', fontsize=size_set['suptitle'], fontweight='bold', y=1.03, **basefont)
-plt.text(0, -0.1, f'Adaptation: No adaptation', ha='center', va='bottom', fontsize=size_set['suptitle'], transform=plt.gca().transAxes, **basefont)
-
-plt.show()
-# Save the exposed assets to a GeoJSON file
-for rp_def, asset_ids in disrupted_asset_ids_filt.items():
-    valid_asset_ids = [asset_id for asset_id in asset_ids if asset_id in assets_4326_clipped.index]
-    assets_4326_clipped.loc[valid_asset_ids].to_file(data_path / 'output' / 'impacts' / f'exposed_assets_{rp_def}.geojson', driver='GeoJSON')
-
-output_disruption_summary_path = data_path / 'output' / 'disruption_summary.csv'
-calculate_disruption_summary(disrupted_asset_ids_filt, assets_4326_clipped, assets, save_to_csv=True, output_path=output_disruption_summary_path)
-# Plot
-fig, axs = plt.subplots(2, 2, figsize=(10, 10))
-
-# Find value max for color bars assuming baseline conditions have higher damages than adapted conditions
-baseline_basins_gdf = prep_adapted_basins_gdf(basins_gdf_0, eadD_ad_by_ts_basin_incf, eadIT_ad_by_ts_basin_incf, adapt_id='baseline', inc_f='mean', clipping_gdf=regions_gdf)
-vmax_dd = math.ceil(max([baseline_basins_gdf['Average EAD_D_ad_t0'].max(), baseline_basins_gdf['Average EAD_D_ad_t100'].max()]) / 10.0) * 10
-vmax_id = np.ceil(max([baseline_basins_gdf['EAD_ID_ad_t0'].max(), baseline_basins_gdf['EAD_ID_ad_t100'].max()])) 
-adapted_basins_list = find_adapted_basin(eadD_ad_by_ts_basin_incf, eadIT_ad_by_ts_basin_incf, adapt_id='l1_trib')
-# xmin, ymin, xmax, ymax = basins_gdf[basins_gdf['HYBAS_ID']==2080430320].total_bounds
-xmin, ymin, xmax, ymax = basins_gdf[basins_gdf['HYBAS_ID'].isin(adapted_basins_list)].total_bounds
-buffer = 0.05
-xmin -= buffer
-ymin -= buffer
-xmax += buffer
-ymax += buffer
-
-# Plot standard elements for all subplots
-for ax in axs.flat:
-    assets_4326_clipped.plot(ax=ax, color=miraca_colors['black'], markersize=1)
-    for rp_def, asset_ids in disrupted_asset_ids_filt.items():
-        valid_asset_ids = [asset_id for asset_id in asset_ids if asset_id in assets_4326_clipped.index]
-        assets_4326_clipped.loc[valid_asset_ids].plot(ax=ax, color=dic_colors[rp_def], markersize=2, linewidth=3)
-    baseline_basins_gdf.plot(ax=ax, edgecolor=miraca_colors['grey_200'], facecolor="None", alpha=0.5, linewidth=1)
-    regions_gdf.boundary.plot(ax=ax, edgecolor=miraca_colors['blue_900'], linestyle='-', linewidth=0.5)
-
-    ax.set_axis_off()
-    ax.set_xlim(xmin, xmax)
-    ax.set_ylim(ymin, ymax)    
-
-# Level 1 adaptation
-# Plot for year 100
-ax = 0, 0
-adapt_id = 'l1_trib'
-adapted_basins_gdf = prep_adapted_basins_gdf(basins_gdf, eadD_ad_by_ts_basin_incf, eadIT_ad_by_ts_basin_incf, adapt_id=adapt_id, inc_f='mean', clipping_gdf=regions_gdf)
-adapted_basins_gdf.plot(column='Average EAD_D_ad_t100', ax=axs[ax], legend=False, cmap='Blues', vmin=0, vmax=vmax_dd, alpha=0.8)
-axs[ax].set_title('Level 1 adaptation', fontsize=16, fontweight='bold')
-# kevel 1 adaptation is a gdf of the protected area and a filter of the protected assets
-gdf_prot_area = gpd.read_file(data_path / 'input' / 'adaptations' /  'l1_tributary.geojson')
-assets_adapt=filter_assets_to_adapt(assets_4326_clipped.to_crs(3857), gdf_prot_area.to_crs(3857))
-assets_adapt=assets_adapt.to_crs(4326)
-gdf_prot_area.plot(ax=axs[ax], edgecolor='black', facecolor=miraca_colors['green_success'], alpha=0.2, linewidth=0.5)
-assets_adapt.plot(ax=axs[ax], color='green', lw=4)
-assets_adapt.to_file(data_path / 'output' / 'adaptations' / 'l1_tributary_assets.geojson', driver='GeoJSON')
-
-# Level 2 adaptation
-# Plot for year 100
-ax = 0, 1
-adapt_id = 'l2_trib'
-adapted_basins_gdf = prep_adapted_basins_gdf(basins_gdf, eadD_ad_by_ts_basin_incf, eadIT_ad_by_ts_basin_incf, adapt_id=adapt_id, inc_f='mean', clipping_gdf=regions_gdf)
-adapted_basins_gdf.plot(column='Average EAD_D_ad_t100', ax=axs[ax], legend=False, cmap='Blues', vmin=0, vmax=vmax_dd, alpha=0.8)
-axs[ax].set_title('Level 2 adaptation', fontsize=16, fontweight='bold')
-# level 2 adaptation is a gdf of the filter of the protected assets
-gdf_prot_area = gpd.read_file(data_path / 'input' / 'adaptations' /  'l2_tributary.geojson')
-assets_adapt=filter_assets_to_adapt(assets_4326_clipped.to_crs(3857), gdf_prot_area.to_crs(3857))
-assets_adapt=assets_adapt.to_crs(4326)
-assets_adapt.plot(ax=axs[ax], color='green', lw=4)
-assets_adapt.to_file(data_path / 'output' / 'adaptations' / 'l2_tributary_assets.geojson', driver='GeoJSON')
-
-# Level 3 adaptation
-# Plot for year 100
-ax = 1, 0
-adapt_id = 'l3_trib'
-adapted_basins_gdf = prep_adapted_basins_gdf(basins_gdf, eadD_ad_by_ts_basin_incf, eadIT_ad_by_ts_basin_incf, adapt_id=adapt_id, inc_f='mean', clipping_gdf=regions_gdf)
-adapted_basins_gdf.plot(column='Average EAD_D_ad_t100', ax=axs[ax], legend=False, cmap='Blues', vmin=0, vmax=vmax_dd, alpha=0.8)
-axs[ax].set_title('Level 3 adaptation', fontsize=16, fontweight='bold')
-# level 3 adaptation is a gdf of new connections between the protected assets
-added_links = [(4424116, 219651487), (219651487, 111997047)]
-for i,osm_id_pair in enumerate(added_links):
-        graph_v, _ = add_l3_adaptation(graph_r0, osm_id_pair)
-gdf_l3_edges = get_l3_gdf(added_links, graph_v)
-gdf_l3_edges.plot(ax=axs[ax], color='green', lw=4)
-gdf_l3_edges.to_file(data_path / 'output' / 'adaptations' / 'l3_tributary_edges.geojson', driver='GeoJSON')
-
-# Level 4 adaptation
-# Plot for year 100
-ax = 1, 1
-adapt_id = 'l4_trib'
-adapted_basins_gdf = prep_adapted_basins_gdf(basins_gdf, eadD_ad_by_ts_basin_incf, eadIT_ad_by_ts_basin_incf, adapt_id=adapt_id, inc_f='mean', clipping_gdf=regions_gdf)
-adapted_basins_gdf.plot(column='Average EAD_D_ad_t100', ax=axs[ax], legend=False, cmap='Blues', vmin=0, vmax=vmax_dd, alpha=0.8)
-axs[ax].set_title('Level 4 adaptation', fontsize=16, fontweight='bold')
-# level 4 adaptation is a gdf with the assets in shortest paths with reduced demand
-adapted_route_area = gpd.read_file(data_path / 'input' / 'adaptations' /  'l4_tributary.geojson')
-demand_reduction_dict = add_l4_adaptation(graph_r0, shortest_paths, adapted_route_area.to_crs(3857))   
-assets_in_paths = list(set([asset_id for od, (asset_ids, demand) in get_asset_ids_from_sps(shortest_paths, graph_r0).items() for asset_id in asset_ids if asset_id != '']))
-assets_adapt=assets_4326_clipped[assets_4326_clipped['osm_id'].isin(assets_in_paths)]
-assets_adapt.plot(ax=axs[ax], color='green', lw=4)
-assets_adapt.to_file(data_path / 'output' / 'adaptations' / 'l4_tributary_assets.geojson', driver='GeoJSON')
-
-for ax in axs.flat:
-    od_geoms_plot.to_crs(4326).plot(ax=ax, edgecolor=miraca_colors['black'], facecolor="None", markersize=40, linewidth=2)
-
-plt.tight_layout()
-plt.suptitle('Direct Damages at Year 100 [Adapted]', fontsize=16,
-             fontweight='bold',
-             y=1.03)
-plt.savefig(data_path / 'output' / 'plots' / 'adaptations_disrupted_assets.png', dpi=300)
-plt.show()
-
-# Plot
-fig, axs = plt.subplots(2, 2, figsize=(10, 10))
-
-# Find value max for color bars assuming baseline conditions have higher damages than adapted conditions
-baseline_basins_gdf = prep_adapted_basins_gdf(basins_gdf, eadD_ad_by_ts_basin_incf, eadIT_ad_by_ts_basin_incf, adapt_id='baseline', inc_f='mean', clipping_gdf=regions_gdf)
-vmax_dd = math.ceil(max([baseline_basins_gdf['Average EAD_D_ad_t0'].max(), baseline_basins_gdf['Average EAD_D_ad_t100'].max()]) / 10.0) * 10
-vmax_id = np.ceil(max([baseline_basins_gdf['EAD_ID_ad_t0'].max(), baseline_basins_gdf['EAD_ID_ad_t100'].max()])) 
-adapted_basins_list = find_adapted_basin(eadD_ad_by_ts_basin_incf, eadIT_ad_by_ts_basin_incf, adapt_id='l4_trib')
-# xmin, ymin, xmax, ymax = basins_gdf[basins_gdf['HYBAS_ID']==2080430320].total_bounds
-xmin, ymin, xmax, ymax = basins_gdf[basins_gdf['HYBAS_ID'].isin(adapted_basins_list)].total_bounds
-buffer = 0.05
-xmin -= buffer
-ymin -= buffer
-xmax += buffer
-ymax += buffer
-
-# Plot standard elements for all subplots
-for ax in axs.flat:
-    assets_4326_clipped.plot(ax=ax, color=miraca_colors['black'], markersize=1)
-    for rp_def, asset_ids in disrupted_asset_ids_filt.items():
-        valid_asset_ids = [asset_id for asset_id in asset_ids if asset_id in assets_4326_clipped.index]
-        assets_4326_clipped.loc[valid_asset_ids].plot(ax=ax, color=dic_colors[rp_def], markersize=2, linewidth=3)
-    baseline_basins_gdf.plot(ax=ax, edgecolor=miraca_colors['grey_200'], facecolor="None", alpha=0.5, linewidth=1)
-    regions_gdf.boundary.plot(ax=ax, edgecolor=miraca_colors['blue_900'], linestyle='-', linewidth=0.5)
-
-    ax.set_axis_off()
-    ax.set_xlim(xmin, xmax)
-    ax.set_ylim(ymin, ymax)    
-
-# Level 1 adaptation
-# Plot for year 100
-ax = 0, 0
-adapt_id = 'l1_trib'
-adapted_basins_gdf = prep_adapted_basins_gdf(basins_gdf, eadD_ad_by_ts_basin_incf, eadIT_ad_by_ts_basin_incf, adapt_id=adapt_id, inc_f='mean', clipping_gdf=regions_gdf)
-adapted_basins_gdf.plot(column='Average EAD_D_ad_t100', ax=axs[ax], legend=False, cmap='Blues', vmin=0, vmax=vmax_dd, alpha=0.8)
-axs[ax].set_title('Level 1 adaptation', fontsize=16, fontweight='bold')
-# kevel 1 adaptation is a gdf of the protected area and a filter of the protected assets
-gdf_prot_area = gpd.read_file(data_path / 'input' / 'adaptations' /  'l1_tributary.geojson')
-assets_adapt=filter_assets_to_adapt(assets_4326_clipped.to_crs(3857), gdf_prot_area.to_crs(3857))
-assets_adapt=assets_adapt.to_crs(4326)
-gdf_prot_area.plot(ax=axs[ax], edgecolor='black', facecolor=miraca_colors['green_success'], alpha=0.2, linewidth=0.5)
-assets_adapt.plot(ax=axs[ax], color='green', lw=4)
-assets_adapt.to_file(data_path / 'output' / 'adaptations' / 'l1_trib_assets.geojson', driver='GeoJSON')
-
-# Level 2 adaptation
-# Plot for year 100
-ax = 0, 1
-adapt_id = 'l2_trib'
-adapted_basins_gdf = prep_adapted_basins_gdf(basins_gdf, eadD_ad_by_ts_basin_incf, eadIT_ad_by_ts_basin_incf, adapt_id=adapt_id, inc_f='mean', clipping_gdf=regions_gdf)
-adapted_basins_gdf.plot(column='Average EAD_D_ad_t100', ax=axs[ax], legend=False, cmap='Blues', vmin=0, vmax=vmax_dd, alpha=0.8)
-axs[ax].set_title('Level 2 adaptation', fontsize=16, fontweight='bold')
-# level 2 adaptation is a gdf of the filter of the protected assets
-gdf_prot_area = gpd.read_file(data_path / 'input' / 'adaptations' /  'l2_tributary.geojson')
-assets_adapt=filter_assets_to_adapt(assets_4326_clipped.to_crs(3857), gdf_prot_area.to_crs(3857))
-assets_adapt=assets_adapt.to_crs(4326)
-assets_adapt.plot(ax=axs[ax], color='green', lw=4)
-assets_adapt.to_file(data_path / 'output' / 'adaptations' / 'l2_trib_assets.geojson', driver='GeoJSON')
-
-# Level 3 adaptation
-# Plot for year 100
-ax = 1, 0
-adapt_id = 'l3_trib'
-adapted_basins_gdf = prep_adapted_basins_gdf(basins_gdf, eadD_ad_by_ts_basin_incf, eadIT_ad_by_ts_basin_incf, adapt_id=adapt_id, inc_f='mean', clipping_gdf=regions_gdf)
-adapted_basins_gdf.plot(column='Average EAD_D_ad_t100', ax=axs[ax], legend=False, cmap='Blues', vmin=0, vmax=vmax_dd, alpha=0.8)
-axs[ax].set_title('Level 3 adaptation', fontsize=16, fontweight='bold')
-# level 3 adaptation is a gdf of new connections between the protected assets
-added_links = [(4424116, 219651487), (219651487, 111997047)]
-for i,osm_id_pair in enumerate(added_links):
-        graph_v, _ = add_l3_adaptation(graph_r0, osm_id_pair)
-gdf_l3_edges = get_l3_gdf(added_links, graph_v)
-gdf_l3_edges.plot(ax=axs[ax], color='green', lw=4)
-gdf_l3_edges.to_file(data_path / 'output' / 'adaptations' / 'l3_trib_edges.geojson', driver='GeoJSON')
-
-# Level 4 adaptation
-# Plot for year 100
-ax = 1, 1
-adapt_id = 'l4_trib'
-adapted_basins_gdf = prep_adapted_basins_gdf(basins_gdf, eadD_ad_by_ts_basin_incf, eadIT_ad_by_ts_basin_incf, adapt_id=adapt_id, inc_f='mean', clipping_gdf=regions_gdf)
-adapted_basins_gdf.plot(column='Average EAD_D_ad_t100', ax=axs[ax], legend=False, cmap='Blues', vmin=0, vmax=vmax_dd, alpha=0.8)
-axs[ax].set_title('Level 4 adaptation', fontsize=16, fontweight='bold')
-# level 4 adaptation is a gdf with the assets in shortest paths with reduced demand
-adapted_route_area = gpd.read_file(data_path / 'input' / 'adaptations' /  'l4_tributary.geojson')
-demand_reduction_dict = add_l4_adaptation(graph_r0, shortest_paths, adapted_route_area.to_crs(3857))   
-assets_in_paths = list(set([asset_id for od, (asset_ids, demand) in get_asset_ids_from_sps(shortest_paths, graph_r0).items() for asset_id in asset_ids if asset_id != '']))
-assets_adapt=assets_4326_clipped[assets_4326_clipped['osm_id'].isin(assets_in_paths)]
-assets_adapt.plot(ax=axs[ax], color='green', lw=4)
-assets_adapt.to_file(data_path / 'output' / 'adaptations' / 'l4_trib_assets.geojson', driver='GeoJSON')
-
-for ax in axs.flat:
-    od_geoms_plot.to_crs(4326).plot(ax=ax, edgecolor=miraca_colors['black'], facecolor="None", markersize=40, linewidth=2)
-
-plt.tight_layout()
-plt.suptitle('Direct Damages at Year 100 [Adapted]', fontsize=16,
-             fontweight='bold',
-             y=1.03)
-
-plt.show()

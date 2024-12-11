@@ -2,11 +2,16 @@ import numpy as np
 import pandas as pd
 import pickle
 import geopandas as gpd
-from tqdm.notebook import tqdm
+# from tqdm.notebook import tqdm
 import datetime
 import shapely
 from shapely import Point, box, length, intersects, intersection, make_valid, is_valid
 from direct_damages import damagescanner_rail_track as ds
+from ra2ce_multi_network.simplify_rail import *
+from ra2ce_multi_network.simplify_rail import _network_to_nx
+# import snkit.network
+from snkit.network import *
+
 import re
 from pyproj import Transformer
 from math import ceil
@@ -15,6 +20,8 @@ from pathlib import Path
 import pathlib
 import configparser
 import ast
+import itertools
+import matplotlib.pyplot as plt
 
 
 
@@ -175,7 +182,8 @@ def process_hazard_data(single_footprint, hazard_type, assets, interim_data_path
         # dictionary of unique assets and their damage (one per map)
         collect_inb = {}
 
-        for asset in tqdm(overlay_assets.groupby('asset'),total=len(overlay_assets.asset.unique())): #group asset items for different hazard points per asset and get total number of unique assets
+        # for asset in tqdm(overlay_assets.groupby('asset'),total=len(overlay_assets.asset.unique())): #group asset items for different hazard points per asset and get total number of unique assets
+        for asset in overlay_assets.groupby('asset'): #group asset items for different hazard points per asset and get total number of unique assets
             # verify asset has an associated asset type (issues when trying to drop bridges, dictionaries have to reset)
             try:
                 asset_type = type_dict[asset[0]]
@@ -239,6 +247,87 @@ def set_rp_priorities(return_period_dict):
     rp_tuple = tuple([key.strip('_') for key in sorted(return_period_dict, key=return_period_dict.get, reverse=True) if key != 'None'] + [None])
 
     return rp_tuple 
+
+def create_dd_gdf(assets, collect_output, rp_spec_priority, average = True):
+    """
+    Create a dataframe of assets with direct damages where each column is a different hazard map
+    
+    Args:
+    assets (GeoDataFrame): GeoDataFrame of assets
+    collect_output (dict): Dictionary with direct damages
+    rp_spec_priority (list): List of return periods in priority
+    average (bool): Whether to average the lower and upper bounds of the direct damages
+
+    Returns:
+    dd_gdf (DataFrame): DataFrame with direct damages
+    """
+    # Create a dataframe of assets with direct damages where each column is a different hazard map
+    columns_to_keep = ['osm_id', 'asset', 'bridge', 'tunnel', 'geometry']
+    rp_spec_order = list(reversed([rp for rp in rp_spec_priority if rp is not None]))
+    dd_gdf = assets[columns_to_keep].copy()
+
+    list_of_keys = list(collect_output.keys())
+
+    # Infer which elements change based on the parts of the name
+    parts_dict = {}
+    for key in list_of_keys:
+        parts = key.split('_')
+        for i, part in enumerate(parts):
+            if i not in parts_dict:
+                parts_dict[i] = []
+            if part not in parts_dict[i]:
+                parts_dict[i].append(part)
+
+    # Find the keys that are variable
+    variable = [part for part in parts_dict if len(parts_dict[part]) > 1]
+
+    # Identify which parts are variable and which are static
+    part_types = {}
+    for p in parts_dict.keys():
+        if p in variable:
+            part_types[p] = 'variable'
+        else:
+            part_types[p] = 'static'
+
+    # Generate all possible combinations of the variable elements and sort them by the order of the return periods
+    variable_combinations = list(itertools.product(*[parts_dict[v] for v in variable]))
+    variable_combinations.sort(key=lambda x: rp_spec_order.index(x[0]))
+
+    # Create a list of hazard maps with all possible combinations
+    column_names = []
+    for p in parts_dict:
+    # if the part is static, add it to the statics list, otherwise, identify if it is in the rp_spec_order. if in rpspecorder, add __RP__ instead, otherwise, add __VAR__
+        if part_types[p] == 'static':
+            column_names.append(p)
+        else:
+            if parts_dict[p][0] in rp_spec_order:
+                column_names.append('__RP__')
+            else:
+                column_names.append('__VAR__')
+
+    hazard_map_names=[]
+    for combination in variable_combinations:
+        hazard_map_name = []
+        for p in column_names:
+            if p == '__RP__':
+                hazard_map_name.append(combination[0])
+            elif p == '__VAR__':
+                hazard_map_name.append(combination[1])
+            else:
+                hazard_map_name.append(list_of_keys[0].split('_')[p])
+        hazard_map_names.append('_'.join(hazard_map_name))
+
+    for asset in dd_gdf.index:
+        for hazard_map in hazard_map_names:
+            try:
+                if average:
+                    dd_gdf.at[asset, hazard_map+'_avg'] = (collect_output[hazard_map][asset][0]+collect_output[hazard_map][asset][1])/2
+                else:
+                    dd_gdf.at[asset, hazard_map+'_lower'] = collect_output[hazard_map][asset][0]
+                    dd_gdf.at[asset, hazard_map+'_upper'] = collect_output[hazard_map][asset][1]
+            except KeyError:
+                pass
+    return dd_gdf
 
 def run_damage_reduction_by_asset(assets, geom_dict, overlay_assets, hazard_numpified_list, collect_inb_bl, changed_assets, hazard_intensity, fragility_values, maxdams_filt, map_rp_spec = None, asset_options=None, rp_spec_priority = None, reporting=False, adaptation_unit_cost=22500):
     """
@@ -614,7 +703,8 @@ def shortest_paths_between_terminals(graph, route_data):
     # Iterate over all route ODs pairs and find the shortest path between the two nodes
     # for _, attr in route_data.iterrows():
     fail_count=0
-    for _, attr in tqdm(route_data.iterrows(), total=route_data.shape[0], desc='Finding shortest paths between origin-destination pairs'):
+    # for _, attr in tqdm(route_data.iterrows(), total=route_data.shape[0], desc='Finding shortest paths between origin-destination pairs'):
+    for _, attr in route_data.iterrows():
         # Snap route origin and destination geometries to nearest terminal node on graph
         if attr['geometry_from'].geom_type == 'Point':
             centroid_from = attr['geometry_from']
@@ -1112,6 +1202,75 @@ def add_l3_adaptation(graph_v, osm_id_pair, detour_index=0.5, adaptation_unit_co
     print('Level 3 adaptation')
     return graph_v, adaptation_cost
 
+def calculate_l4_costs(graph_rail, nodes_reduced_demand, shortest_paths, demand_reduction_dict):
+    """
+    Calculates the costs of a level 4 adaptation. The function first find thes bounds of the area where demand is reduced,
+    then a buffer is created around the area. The road network for that area is retrieved, the shortest paths between nodes
+    with reduced demand are calculated and the cost of the adaptation is calculated based on the demand and the distance of 
+    shortest paths.
+
+    Under development
+    """
+    #assumed costs
+    average_train_load_tons = (896+1344+2160+1344+896+896+1344+1512+896+390)/10 # in Tons per train. Source: Kennisinstituut voor Mobiliteitsbeleid. 2023. Cost Figures for Freight Transport – final report
+    average_road_cost_per_ton_km = (0.395+0.375+0.246+0.203+0.138+0.153+0.125+0.103+0.122+0.099)/10 # in Euros per ton per km. Source: Kennisinstituut voor Mobiliteitsbeleid. 2023. Cost Figures for Freight Transport – final report
+
+    l4_cost = 0
+
+    # Find the bounds of the area where demand is reduced
+    nodes_reduced_demand=nodes_reduced_demand.to_crs(4326)
+    bounds = nodes_reduced_demand.total_bounds
+
+    #export as geojson
+    bounds_gdf = gpd.GeoDataFrame(geometry=[box(*bounds)], crs=4326)
+    bounds_gdf.to_file(r'C:\Users\peregrin\osm\osm_bpf\bounds.geojson', driver='GeoJSON')
+
+    # Create a buffer around the bounds gdf
+    buffer_gdf = bounds_gdf.copy().to_crs(3857)
+    buffer_gdf['geometry'] = buffer_gdf.buffer(10000)
+
+    #load gdf of road network and clip to buffer
+    road_network = gpd.read_file(r'C:\Users\peregrin\osm\road_study_area_road_bounds.geojson')
+    road_network = road_network.to_crs(3857)
+    road_network = road_network[road_network['geometry'].intersects(buffer_gdf.union_all())]
+    road_network['length'] = road_network['geometry'].length
+
+    road_network_4326=road_network.to_crs(4326)
+    net = Network(edges=road_network_4326)
+    net = add_endpoints(network=net)
+    net=link_nodes_to_edges_within(network=net, distance=0.0000014)
+    net=add_ids(network=net)
+    net=add_topology(network=net)
+    net.set_crs(4326)
+    net.edges=net.edges.to_crs(3857)
+    net.nodes=net.nodes.to_crs(3857)
+
+    merged_road_network=net
+    merged_road_graph = _network_to_nx(merged_road_network)
+    graph_r=nx.MultiDiGraph(merged_road_graph)
+
+    shortest_paths_rd = {}
+    node_matches = {}
+    for shortest_path in demand_reduction_dict.keys():
+        from_node_rail = shortest_path[0]
+        to_node_rail = shortest_path[1]
+        from_node = nearest_nodes(graph_r, graph_rail.nodes[from_node_rail]['geometry'], 1)[0][0]
+        to_node = nearest_nodes(graph_r, graph_rail.nodes[to_node_rail]['geometry'], 1)[0][0]
+        path = nx.shortest_path(graph_r, from_node, to_node, weight='length')
+        demand_gap = shortest_paths[(from_node_rail, to_node_rail)][1]*demand_reduction_dict[shortest_path]
+        shortest_paths_rd[(from_node, to_node)] = (path, demand_gap)
+        node_matches[(from_node, to_node)] = (from_node_rail, to_node_rail)
+
+    #calculate the cost of the adaptation
+    l4_cost = 0
+    for (from_node, to_node), (path, demand_gap) in shortest_paths_rd.items():
+        sp_length = nx.shortest_path_length(graph_r, from_node, to_node, weight='length')
+        l4_cost += 52*demand_gap*average_train_load_tons*average_road_cost_per_ton_km*(sp_length/1000)
+        print(f'- Rerouting demand for OD: {node_matches[(from_node, to_node)]} by road, {demand_gap*52} trains per year  and length {int(sp_length)} m, yearly cost: {demand_gap*(sp_length/1000)*average_road_cost_per_ton_km*average_train_load_tons:.2f} Euros')
+    print(f'Total cost of adaptation: {l4_cost:.2f} Euros per year')    
+
+    return l4_cost
+
 def add_l4_adaptation(graph_v, shortest_paths, adapted_route_area, demand_reduction=1.0):
     """
     Adds a level 4 adaptation by reducing demand on disrupted paths.
@@ -1139,10 +1298,15 @@ def add_l4_adaptation(graph_v, shortest_paths, adapted_route_area, demand_reduct
         if from_node in nodes_reduced_demand_list or to_node in nodes_reduced_demand_list:
             demand_reduction_dict[(from_node,to_node)] = demand_reduction
 
-    print('Applying adaptation: reduced demand for routes: ', [key for key in demand_reduction_dict.keys()])
+    print('Applying adaptation: shifted demand for routes: ', [key for key in demand_reduction_dict.keys()])
     print('Level 4 adaptation')
 
-    return demand_reduction_dict
+    ### DEVLEOPMENT
+    try:
+        l4_cost = calculate_l4_costs(graph_v, nodes_reduced_demand, shortest_paths, demand_reduction_dict)
+    except:
+        l4_cost = 0
+    return demand_reduction_dict#, l4_cost
 
 
 def add_adaptation_columns(adapted_assets):
@@ -1482,7 +1646,8 @@ def run_adapted_damages(data_path, config_file, collect_output, disrupted_edges_
     l2_adaptation_costs = {}
     overlay_assets_lists = {'flood_DERP_RW_M':[], 'flood_DERP_RW_H':[], 'flood_DERP_RW_L':[]}
     adaptation_run_full = {'flood_DERP_RW_M':[{},{}], 'flood_DERP_RW_H':[{},{}], 'flood_DERP_RW_L':[{},{}]}
-    for hazard_map in tqdm(collect_output.keys(), desc='Processing adapted damages by hazard map', total=len(collect_output.keys())):
+    # for hazard_map in tqdm(collect_output.keys(), desc='Processing adapted damages by hazard map', total=len(collect_output.keys())):
+    for hazard_map in collect_output.keys():
         hm_full_id=hazard_map.split('_4326')[0]
         map_rp_spec = hazard_map.split('_')[-3]
         overlay_assets, hazard_numpified_list = load_baseline_run(hazard_map, interim_data_path)
@@ -1533,14 +1698,33 @@ def calculate_indirect_dmgs_fullflood(full_flood_event, overlay_assets_lists, ad
         dict: Indirect damages for full flood events.
     """
     indirect_damages_adapted_full={}
-    for hazard_map in tqdm(full_flood_event.keys(), total=len(full_flood_event.keys()), desc='Processing full flood events'):
+    # for hazard_map in tqdm(full_flood_event.keys(), total=len(full_flood_event.keys()), desc='Processing full flood events'):
+    for hazard_map in full_flood_event.keys():
         overlay_assets_full_dict = {i:overlay_assets_lists[hazard_map][i] for i in range(len(overlay_assets_lists[hazard_map]))}
         overlay_assets_full=pd.DataFrame(overlay_assets_full_dict, index=['asset']).T
         indirect_damages_adapted_full[hazard_map] = run_indirect_damages_by_hazmap(adaptation_run_full[hazard_map], assets, hazard_map, overlay_assets_full, all_disrupted_edges[hazard_map], shortest_paths, graph_v, average_train_load_tons, average_train_cost_per_ton_km, average_road_cost_per_ton_km, demand_reduction_dict)
 
     return indirect_damages_adapted_full
 
-def process_adaptation_costs(adaptation_cost_dict):
+def discount_maintenance_costs(yearly_maintenance_percent, discount_rate_percent, num_years):
+    """
+    Calculate the discounted maintenance costs for each level
+
+    Args:
+    yearly_maintenance_percent (dict): yearly maintenance costs for each level
+    discount_rate_percent (float): discount rate
+    num_years (int): number of years to discount
+
+    Returns:
+    maintenance_pc_dict (dict): discounted maintenance costs for each level
+    """
+    maintenance_pc_dict = {}
+    for level in yearly_maintenance_percent.keys():
+        maintenance_pc_dict[level] = sum([(yearly_maintenance_percent[level]) / (1 + discount_rate_percent/100)**i for i in range(num_years)])
+
+    return maintenance_pc_dict
+
+def process_adaptation_costs(adaptation_cost_dict, maintenance_pc_dict=None):
     """
     Process the adaptation costs dictionary to get the total adaptation costs for each adaptation.
 
@@ -1559,9 +1743,14 @@ def process_adaptation_costs(adaptation_cost_dict):
             - l2: A dictionary with hazard maps as keys and their corresponding costs (float/int) as values.
             - l3: A dictionary with added link tuples as keys and their corresponding costs (float/int) as values.
 
+    - maintenance_pc_dict (dict): A dictionary with the maintenance percentage for each adaptation level. Default is None.
+        
     Returns:
     - adaptation_costs (dict): A dictionary with the total adaptation costs for each adaptation.
     """
+    if maintenance_pc_dict is None:
+        maintenance_pc_dict = {'l1': 0.0, 'l2': 0.0, 'l3': 0.0}
+
 
     adaptation_costs = {}
     for adapt_id, levels in adaptation_cost_dict.items():
@@ -1570,11 +1759,11 @@ def process_adaptation_costs(adaptation_cost_dict):
             if costs is None:
                 continue
             if level == 'l1':
-                adaptation_costs[adapt_id]+= sum(costs.values())/1e6
+                adaptation_costs[adapt_id]+= (1+maintenance_pc_dict[level]/100)*sum(costs.values())/1e6
             if level == 'l2':
-                adaptation_costs[adapt_id]+= sum([sum(costs.values()) for costs in costs.values()])/1e6
+                adaptation_costs[adapt_id]+= (1+maintenance_pc_dict[level]/100)*sum([sum(costs.values()) for costs in costs.values()])/1e6
             if level == 'l3':
-                adaptation_costs[adapt_id]+= sum(costs.values())/1e6
+                adaptation_costs[adapt_id]+= (1+maintenance_pc_dict[level]/100)*sum(costs.values())/1e6
 
     return adaptation_costs
 
@@ -1850,35 +2039,7 @@ def get_l3_gdf(added_links, graph_v):
     else:
         return None
 
-def get_l3_gdf(added_links, graph_v):
-    l3_geometries = {}
-    if added_links != []:
-        for u, v, k, attr in graph_v.edges(keys=True, data=True):
-            if 'osm_id' not in attr:
-                continue
-            if 'l3_adaptation' in attr['osm_id']:
-                # Ensure the geometry is a valid Shapely geometry object
-                geometry = attr['geometry']
-                if isinstance(geometry, list) and len(geometry) == 1 and isinstance(geometry[0], shapely.LineString):
-                    geometry = geometry[0]
-                if isinstance(geometry, shapely.LineString):
-                    l3_geometries[(u, v)] = geometry
-                else:
-                    print(f"Invalid geometry for edge ({u}, {v}): {geometry}")
-
-        gdf_l3_edges = gpd.GeoDataFrame.from_dict(l3_geometries, orient='index', columns=['geometry'], geometry='geometry', crs=3857)
-        gdf_l3_edges.reset_index(inplace=True)
-
-        gdf_l3_edges = gpd.GeoDataFrame(list(l3_geometries.items()), columns=['edge', 'geometry'], geometry='geometry', crs=3857).to_crs(4326)
-        gdf_l3_edges['u']=gdf_l3_edges['edge'].apply(lambda x: x[0])
-        gdf_l3_edges['v']=gdf_l3_edges['edge'].apply(lambda x: x[1])
-        gdf_l3_edges=gdf_l3_edges.drop(columns=['edge'])
-
-        return gdf_l3_edges
-    else:
-        return None
-
-def calculate_risk(probabilities, damages_lower, damages_upper):
+def calculate_risk(probabilities, damages_lower, damages_upper, discount_rate_percent = 0):
     """
     Calculate the risk for each timestep based on the probabilities and damages.
 
@@ -1927,6 +2088,11 @@ def calculate_risk(probabilities, damages_lower, damages_upper):
 
         risk_l.append(sum(risk_l_ts))
         risk_u.append(sum(risk_u_ts))
+
+    discounts=[1/(1+discount_rate_percent/100)**i for i in range(len(risk_l))]
+
+    risk_l = [r * d for r, d in zip(risk_l, discounts)]
+    risk_u = [r * d for r, d in zip(risk_u, discounts)]
     
     return risk_l, risk_u
 
@@ -2101,7 +2267,7 @@ def load_adaptation_impacts(adaptation_id, data_path):
     return direct_damages_adapted, indirect_damages_adapted, indirect_damages_adapted_full, adapted_assets, adaptation_costs, adaptations_df
 
 
-def compile_direct_risk(inc_f, return_periods, basins_list, collect_output, total_damages_adapted_df_mill):
+def compile_direct_risk(inc_f, return_periods, basins_list, collect_output, total_damages_adapted_df_mill, discount_rate_percent=0):
     """
     Compile the direct risk for each basin.
 
@@ -2111,6 +2277,7 @@ def compile_direct_risk(inc_f, return_periods, basins_list, collect_output, tota
     - basins_list (list): A list of basins.
     - collect_output (dict): A dictionary of collected damage output.
     - total_damages_adapted_df_mill (DataFrame): A DataFrame of total damages including adaptations.
+    - discount_rate_percent (float): The discount rate as a percentage. (default: 0, frequent values 0-7%)
 
     Returns:
     - ead_y0_dd_all (numpy ndarray): An array of the expected annual direct damages at timestep 0 for all basins (upper and lower bounds).
@@ -2138,7 +2305,7 @@ def compile_direct_risk(inc_f, return_periods, basins_list, collect_output, tota
         aggregated_df_by_basin[basin] = aggregated_df_by_basin[basin].sort_values('Return Period', ascending=True)
         aggregated_df_by_basin[basin]['Probability'] = [[1 / x for x in i] for i in aggregated_df_by_basin[basin]['Return Period']]
         probabilities = aggregated_df_by_basin[basin]['Probability']
-        risk_l, risk_u = calculate_risk(probabilities, aggregated_df_by_basin[basin]['Total Damage Lower Bound'], aggregated_df_by_basin[basin]['Total Damage Upper Bound'])
+        risk_l, risk_u = calculate_risk(probabilities, aggregated_df_by_basin[basin]['Total Damage Lower Bound'], aggregated_df_by_basin[basin]['Total Damage Upper Bound'], discount_rate_percent=discount_rate_percent)
         eadD_by_ts_by_basin[basin] = pd.DataFrame(list(zip(risk_l, risk_u)), columns=['Total Damage Lower Bound', 'Total Damage Upper Bound'])
         eadD_by_ts_by_basin_incf[inc_f][basin] = eadD_by_ts_by_basin[basin]
     ead_y0_dd_all = sum([eadD_by_ts_by_basin[basin].values[0] for basin in eadD_by_ts_by_basin])
@@ -2146,7 +2313,7 @@ def compile_direct_risk(inc_f, return_periods, basins_list, collect_output, tota
     total_dd_all = sum([sum(eadD_by_ts_by_basin[basin].values) for basin in eadD_by_ts_by_basin])
     return ead_y0_dd_all, ead_y100_dd_all, total_dd_all, eadD_by_ts_by_basin
 
-def compile_indirect_risk_tributaries(inc_f, return_periods, basins_list, basin_list_tributaries, collect_output, total_damages_adapted_df_mill):
+def compile_indirect_risk_tributaries(inc_f, return_periods, basins_list, basin_list_tributaries, collect_output, total_damages_adapted_df_mill, discount_rate_percent=0):
     """
     Compile the indirect risk for each basin.
 
@@ -2157,6 +2324,7 @@ def compile_indirect_risk_tributaries(inc_f, return_periods, basins_list, basin_
     - basin_list_tributaries (list): A list of tributaries.
     - collect_output (dict): A dictionary of collected damage output.
     - total_damages_adapted_df_mill (DataFrame): A DataFrame of total damages including adaptations.
+    - discount_rate_percent (float): The discount rate as a percentage. (default: 0, frequent values 0-7%)
 
     Returns:
     - ead_y0_id_all (numpy ndarray): An array of the expected annual indirect damages at timestep 0 for all basins (upper and lower bounds).
@@ -2190,7 +2358,7 @@ def compile_indirect_risk_tributaries(inc_f, return_periods, basins_list, basin_
         aggregated_df_by_basin[basin] = aggregated_df_by_basin[basin].sort_values('Return Period', ascending=True)
         aggregated_df_by_basin[basin]['Probability'] = [[1 / x for x in i] for i in aggregated_df_by_basin[basin]['Return Period']]
         probabilities = aggregated_df_by_basin[basin]['Probability']
-        risk_l, risk_u = calculate_risk(probabilities, aggregated_df_by_basin[basin]['Total indirect damage'], aggregated_df_by_basin[basin]['Total indirect damage'])
+        risk_l, risk_u = calculate_risk(probabilities, aggregated_df_by_basin[basin]['Total indirect damage'], aggregated_df_by_basin[basin]['Total indirect damage'], discount_rate_percent=discount_rate_percent)
         eadIT_by_ts_by_basin[basin] = pd.DataFrame(list(zip(risk_l, risk_u)), columns=['Total indirect damage Lower Bound', 'Total indirect damage Upper Bound'])
         eadIT_by_ts_by_basin_incf[inc_f][basin] = eadIT_by_ts_by_basin[basin]
 
@@ -2199,13 +2367,14 @@ def compile_indirect_risk_tributaries(inc_f, return_periods, basins_list, basin_
     total_id_all = sum([sum(eadIT_by_ts_by_basin[basin].values) for basin in eadIT_by_ts_by_basin])
     return ead_y0_id_all, ead_y100_id_all, total_id_all, eadIT_by_ts_by_basin
 
-def compile_indirect_risk_full_flood(return_periods, indirect_damages_adapted_full):
+def compile_indirect_risk_full_flood(return_periods, indirect_damages_adapted_full, discount_rate_percent=0):
     """
     Compile the indirect risk for the full flood scenario.
 
     Args:
     - return_periods (dict): A dictionary of return periods.
     - indirect_damages_adapted_full (dict): A dictionary of indirect damages for the full flood scenario.
+    - discount_rate_percent (float): The discount rate as a percentage. (default: 0, frequent values 0-7%)
 
     Returns:
     - ead_y0_id_full (float): The expected annual indirect damages at timestep 0 for the full flood scenario.
@@ -2220,7 +2389,7 @@ def compile_indirect_risk_full_flood(return_periods, indirect_damages_adapted_fu
     aggregated_df = aggregated_df.sort_values('Return Period', ascending=True)
     aggregated_df['Probability'] = [[1 / rp for rp in ts] for ts in aggregated_df['Return Period']]
     probabilities = pd.DataFrame([[1 / rp for rp in ts] for ts in aggregated_df['Return Period']])
-    risk_l, risk_u = calculate_risk(probabilities, aggregated_df['Total indirect damage'], aggregated_df['Total indirect damage'])
+    risk_l, risk_u = calculate_risk(probabilities, aggregated_df['Total indirect damage'], aggregated_df['Total indirect damage'], discount_rate_percent=discount_rate_percent)
     ead_y0_id_full = risk_l[0]
     ead_y100_id_full = risk_l[-1]
     total_id_full = sum(risk_l)
