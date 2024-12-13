@@ -1304,7 +1304,9 @@ def add_l4_adaptation(graph_v, shortest_paths, adapted_route_area, demand_reduct
     ### DEVLEOPMENT
     try:
         l4_cost = calculate_l4_costs(graph_v, nodes_reduced_demand, shortest_paths, demand_reduction_dict)
-    except:
+    except Exception as e:
+        print(e)    
+        print('Error calculating level 4 costs, setting to 0')
         l4_cost = 0
     return demand_reduction_dict#, l4_cost
 
