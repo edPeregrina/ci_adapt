@@ -408,7 +408,7 @@ def run_damage_reduction_by_asset(assets, geom_dict, overlay_assets, hazard_nump
             
             # calculate the adaptation cost
             get_hazard_points = hazard_numpified_list_mod[0][asset[1]['hazard_point'].values] 
-            get_hazard_points[intersects(get_hazard_points[:,1],asset_geom)]
+            get_hazard_points[shapely.intersects(get_hazard_points[:,1],asset_geom)]
             
             if map_rp_spec == changed_assets.loc[asset[0]].l2_rp_spec: 
                 if len(get_hazard_points) == 0: # no overlay of asset with hazard
@@ -508,10 +508,10 @@ def calculate_new_paths(graph_v, shortest_paths, disrupted_edges, demand_reducti
         else:
             demand_reduction_factor=demand_reduction_dict[(origin,destination)] if (origin,destination) in demand_reduction_dict.keys() else 0
             try:
-                disrupted_shortest_paths[(origin,destination)] = (nx.shortest_path(graph_v_disrupted, origin, destination, weight='weight'), demand*(1-demand_reduction_factor))
+                disrupted_shortest_paths[(origin,destination)] = (nx.shortest_path(graph_v_disrupted, origin, destination, weight='weight'), (demand[0]*(1-demand_reduction_factor), demand[1]*(1-demand_reduction_factor)))
             except nx.NetworkXNoPath:
                 print(f'No path between {origin} and {destination}. Cannot ship by train.')
-                disrupted_shortest_paths[(origin,destination)] = (None, demand*(1-demand_reduction_factor))
+                disrupted_shortest_paths[(origin,destination)] = (None, (demand[0]*(1-demand_reduction_factor), demand[1]*(1-demand_reduction_factor)))
                 continue
     
     return disrupted_shortest_paths
@@ -534,13 +534,17 @@ def calculate_economic_impact_shortest_paths(hazard_map, graph, shortest_paths, 
     """
     # hazard_map = 'flood_DERP_RW_L_4326_2080430320'
     haz_rp=hazard_map.split('_RW_')[-1].split('_')[0]
+    #Economic impact from passengers
+    average_passengers_per_train_station=33.3 # Based on 78.3 million train journeys between stations carrying 2.63 billion passengers in germany (average ridership 2011-2020) # 22.4 #Based on 78.3 million train journeys between stations carrying 1.75 billion passengers in Germany, 2020 (Eurostat)
+    revenue_per_passenger_station = 40 # Average sparpreis ticket prices https://doi.org/10.1016/j.ecotra.2022.100286 #2.80 # Adult single ticket price (https://www.wsw.info/fileadmin/wswinfo/ausgabe179/News/179_news_Preistabelle.pdf)
 
     #duration of disruption = 1 week for haz_rp 'H', 2 for 'M' and 10 for 'L'
     duration_dict={'H':1, 'M':2, 'L':10}
     duration=duration_dict[haz_rp]
-    economic_impact = 0
+    economic_impact_freight = 0
+    economic_impact_passenger = 0
     # Loop through the edges where there is a change in flow
-    for (origin, destination), (nodes_in_path, demand) in disrupted_shortest_paths.items():
+    for (origin, destination), (nodes_in_path, demand) in disrupted_shortest_paths.items(): #demand [0] is goods, [1] is passengers
         # Find the length of the initial shortest path
         length_old_path=0
         for i in range(len(shortest_paths[(origin, destination)][0])-1):
@@ -548,7 +552,9 @@ def calculate_economic_impact_shortest_paths(hazard_map, graph, shortest_paths, 
 
         # If there is no path available, calculate cost of shipping by road             
         if (nodes_in_path is None) or ('_d' in str(nodes_in_path)):
-            economic_impact += duration*demand*average_train_load_tons*(average_road_cost_per_ton_km-average_train_cost_per_ton_km)*length_old_path
+            economic_impact_freight += duration*demand[0]*average_train_load_tons*(average_road_cost_per_ton_km-average_train_cost_per_ton_km)*length_old_path
+            economic_impact_passenger += duration*demand[1]*average_passengers_per_train_station*revenue_per_passenger_station # passenger revenue is lost due to disruption
+
             continue
 
         # If there is a path available, find the length of the new shortest path and find the cost due to additional distnce travelled
@@ -556,10 +562,12 @@ def calculate_economic_impact_shortest_paths(hazard_map, graph, shortest_paths, 
             length_new_path=0
             for i in range(len(nodes_in_path)-1):
                 length_new_path += graph.edges[nodes_in_path[i], nodes_in_path[i+1], 0]['length']/1000
-            economic_impact += duration*demand*average_train_load_tons*average_train_cost_per_ton_km*(length_new_path-length_old_path)
-        
+            economic_impact_freight += duration*demand[0]*average_train_load_tons*average_train_cost_per_ton_km*(length_new_path-length_old_path)
+            economic_impact_passenger += duration*demand[1]*average_passengers_per_train_station*revenue_per_passenger_station
+
+    economic_impact = economic_impact_freight + economic_impact_passenger
     # returns the economic impact for an infrastructure region given the infrastructure graph and shortest paths between ods, a set of disrupted shortest paths and the average train loads and costs
-    return economic_impact
+    return economic_impact, economic_impact_freight, economic_impact_passenger
 
 def _inspect_graph(graph):
     """
@@ -692,7 +700,7 @@ def shortest_paths_between_terminals(graph, route_data):
         route_data (DataFrame): DataFrame of route data.
 
     Returns:
-        dict: Dictionary of shortest paths between terminal nodes.
+        dict: Dictionary of shortest paths and demand between terminal nodes.
     """
     # Make a copy of the graph with only the nodes identified as possible terminals
     terminal_graph = _create_terminal_graph(graph)
@@ -742,8 +750,8 @@ def shortest_paths_between_terminals(graph, route_data):
         # Find the shortest path between the two terminals and the average flow on the path
         try:
             shortest_path = nx.shortest_path(graph, from_nearest_node[0][0], to_nearest_node[0][0], weight='weight')
-            paths[(from_nearest_node[0][0], to_nearest_node[0][0])] = (shortest_path, int(ceil(attr['goods']/52)))
-            #here add name to node from route data    
+            # paths[(from_nearest_node[0][0], to_nearest_node[0][0])] = (shortest_path, int(ceil(attr['goods']/52)))
+            paths[(from_nearest_node[0][0], to_nearest_node[0][0])] = (shortest_path, (attr['goods']/52, attr['passengers']/52))
         except nx.NetworkXNoPath:
             fail_count += 1
             continue               
@@ -765,12 +773,15 @@ def prepare_route_data(route_data_source, assets=None):
 
     # Load route data
     route_data = pd.read_excel(route_data_source)
-    # Only keep columns that are necessary: From_Latitude, From_Longitude, To_Latitude, To_Longitude, Number_Goods_trains, Country
-    route_data = route_data[['From', 'To', 'From_Latitude', 'From_Longitude', 'To_Latitude', 'To_Longitude', 'Number_Goods_trains', 'Country']]
-    # Rename columns Number_Goods_trains to goods 
-    route_data = route_data.rename(columns={'Number_Goods_trains' : 'goods'})
-    # Drop rows with no goods
-    route_data = route_data[route_data['goods'] > 0]
+    # Only keep columns that are necessary: From_Latitude, From_Longitude, To_Latitude, To_Longitude, Number_Goods_trains, Number_Passenger_Trains, Country
+    route_data = route_data[['From', 'To', 'From_Latitude', 'From_Longitude', 'To_Latitude', 'To_Longitude', 'Number_Goods_trains', 'Number_Passenger_Trains', 'Country']]
+    # Rename columns Number_Goods_trains to goods and Number_Passenger_Trains to passengers
+    route_data = route_data.rename(columns={'Number_Goods_trains' : 'goods', 'Number_Passenger_Trains' : 'passengers'})
+    # Drop rows with no goods or passengers
+    route_data['g_p'] = route_data['goods'] + route_data['passengers']
+    route_data = route_data[route_data['g_p'] > 0]
+    # Delete the g_p column
+    del route_data['g_p']
     # Drop rows that are not from Country "DE"
     route_data = route_data[route_data['Country'] == 'DE']
     # Convert From_Latitude, From_Longitude and To_Latitude, To_Longitude to geometries
@@ -992,7 +1003,7 @@ def run_direct_damage_reduction_by_hazmap(data_path, config_file, assets, geom_d
 
     return adaptation_run       
 
-def run_indirect_damages_by_hazmap(adaptation_run, assets, hazard_map, overlay_assets, disrupted_edges, shortest_paths, graph_v, average_train_load_tons, average_train_cost_per_ton_km, average_road_cost_per_ton_km, demand_reduction_dict=dict(), reporting=False):
+def run_indirect_damages_by_hazmap(adaptation_run, assets, hazard_map, overlay_assets, disrupted_edges, shortest_paths, graph_v, average_train_load_tons, average_train_cost_per_ton_km, average_road_cost_per_ton_km, demand_reduction_dict=dict(), reporting=False, goods_service_breakdown=False):
     """
     Runs indirect damage analysis for a hazard map, calculating economic impacts of disrupted paths.
 
@@ -1009,10 +1020,11 @@ def run_indirect_damages_by_hazmap(adaptation_run, assets, hazard_map, overlay_a
         average_road_cost_per_ton_km (float): Average road cost per ton-kilometer.
         demand_reduction_dict (dict, optional): Dictionary of demand reductions by origin/destination. Defaults to dict().
         reporting (bool, optional): Whether to print reporting information. Defaults to False.
+        goods_service_breakdown (bool, optional): Whether to return a breakdown of goods and passenger impacts. Defaults to False.
 
     Returns:
-        float: Economic impact of the disruptions.
-    """
+        impact (tuple): Economic impact of the disruptions (total, freight, passenger). If goods_service_breakdown is False, only the total impact is returned (float).
+        """
     # For a given hazard map overlay, find all the assets that are fully protected
     fully_protected_assets=[asset_id for asset_id, damages in adaptation_run[1].items() if damages[0]==0 and damages[1]==0]
 
@@ -1038,8 +1050,11 @@ def run_indirect_damages_by_hazmap(adaptation_run, assets, hazard_map, overlay_a
         print(f'{hazard_map}, {impact:,.2f}')
         print('disrupted_edges baseline: ', disrupted_edges)    
         print('disrupted_edges_adapted: ', disrupted_edges_adapted)
-
-    return impact
+    
+    if goods_service_breakdown==True:
+        return impact #tuple of total impact, freight impact, passenger impact
+    else:
+        return impact[0]
 
 
 def add_l1_adaptation(adapted_assets, affected_assets, rp_spec_priority):
@@ -1523,13 +1538,15 @@ def calculate_l1_costs(local_haz_path, interim_data_path, adapted_area, adaptati
         adapted_area=adapted_area.explode(index_parts=True).reset_index(drop=True) #added index_parts=True for future compatibility, remove if behaving erratically
         adapted_area['geometry'] = adapted_area['geometry'].apply(lambda x: shapely.LineString(x.exterior) if isinstance(x, (shapely.Polygon, shapely.MultiPolygon)) else x)
         adapted_area['buffered'] = shapely.buffer(adapted_area.geometry.values,distance=1)    
+        print(adapted_area)
 
         l1_adaptation_costs = {}
         for (adaptation_id, ad) in adapted_area.iterrows():
+            print(adaptation_id, ad)
             if ad.adapt_level != 1:
                 continue
-
             for single_footprint in hazard_data_list:
+                print(single_footprint)
                 hazard_map = single_footprint.parts[-1].split('.')[0]     
             
                 haz_rp=hazard_map.split('_')[-3]
