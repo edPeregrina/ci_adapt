@@ -1535,52 +1535,40 @@ def calculate_l1_costs(local_haz_path, interim_data_path, adapted_area, adaptati
 
     hazard_data_list = ds.read_hazard_data(local_haz_path)
     if adapted_area is not None:
-        print("Troubleshooting 1")
         adapted_area=adapted_area.explode(index_parts=True).reset_index(drop=True) #added index_parts=True for future compatibility, remove if behaving erratically
         adapted_area['geometry'] = adapted_area['geometry'].apply(lambda x: shapely.LineString(x.exterior) if isinstance(x, (shapely.Polygon, shapely.MultiPolygon)) else x)
         adapted_area['buffered'] = shapely.buffer(adapted_area.geometry.values,distance=1)    
-        print("Troubleshooting 1.1")
         print(adapted_area)
 
         l1_adaptation_costs = {}
         for (adaptation_id, ad) in adapted_area.iterrows():
-            print("Troubleshooting 1.2")
             print(adaptation_id, ad)
             if ad.adapt_level != 1:
-                print("Troubleshooting 2")
                 continue
-            print("hazard_data_list", hazard_data_list)
             for single_footprint in hazard_data_list:
                 print(single_footprint)
                 hazard_map = single_footprint.parts[-1].split('.')[0]     
             
                 haz_rp=hazard_map.split('_')[-3]
                 if haz_rp != ad.rp_spec.upper():
-                    print("Troubleshooting 3")
                     continue
             
                 overlay_assets = load_baseline_run(hazard_map, interim_data_path, only_overlay=True)
                 if set(overlay_assets.asset.values).isdisjoint(adapted_assets.index):
-                    print("Troubleshooting 4")
                     continue
                 if 'fwall' not in ad.prot_area:
-                    print("Troubleshooting 5")
                     continue
                 try:
-                    print("Troubleshooting 6")
                     hazard_numpified_list = load_baseline_run(hazard_map, interim_data_path)[1]
                     adaptation_gdf=gpd.GeoDataFrame(adapted_area.iloc[[adaptation_id]])
                     if adaptation_id not in l1_adaptation_costs.keys():
-                        print("Troubleshooting 7")
                         l1_adaptation_costs[adaptation_id] = process_adap_dat(single_footprint, adaptation_gdf, hazard_numpified_list, adaptation_unit_cost=adaptation_unit_costs['fwall'])
                     else:
-                        print("Troubleshooting 8")
                         l1_adaptation_costs[adaptation_id] += process_adap_dat(single_footprint, adaptation_gdf, hazard_numpified_list, adaptation_unit_cost=adaptation_unit_costs['fwall'])                    
                     continue
 
                 except Exception as e:
                     print(f'Error occurred in {hazard_map}: {str(e)}')
-                    print("Troubleshooting 9")
                     continue
         return l1_adaptation_costs
 
