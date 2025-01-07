@@ -1,4 +1,4 @@
-Risk component,Year 0 (undiscounted),Future A,Future B,Future C
+Risk component,Year 0 (undiscounted),Future A (discounted),Future B (discounted),Future C (discounted)
 Direct damage [M€],1.6799533322598295,1.1532017758486948,1.8442452625355419,2.480280766614342
 Indirect losses tributaries [M€],0.7314118241716856,0.44410955489259063,0.6694872220480859,0.8763311071889313
 Indirect losses mainstem [M€],2.0482412740926743,1.1804049519348407,1.9632692743206057,2.6777986670399425
