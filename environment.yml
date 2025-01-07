@@ -131,6 +131,7 @@ dependencies:
   - zlib=1.2.13=h8cc25b3_0
   - zstd=1.5.5=hd43e919_0
   - pip:
+    - snkit
     - tqdm
     - xarray
     - openpyxl

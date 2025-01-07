@@ -1,0 +1,16 @@
+{
+"type": "FeatureCollection",
+"name": "od_geoms_plot",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::3857" } },
+"features": [
+{ "type": "Feature", "properties": { "name": "Büdesheim-Dromersheim" }, "geometry": { "type": "Point", "coordinates": [ 884417.190762495389208, 6434645.48545041307807 ] } },
+{ "type": "Feature", "properties": { "name": "Stromberg (Hunsrück)" }, "geometry": { "type": "Point", "coordinates": [ 864738.966076241456904, 6436970.860016990453005 ] } },
+{ "type": "Feature", "properties": { "name": "Langenlonsheim" }, "geometry": { "type": "Point", "coordinates": [ 879515.047742279246449, 6430045.251118134707212 ] } },
+{ "type": "Feature", "properties": { "name": "Bad Münster am Stein" }, "geometry": { "type": "Point", "coordinates": [ 873713.877382467500865, 6414225.605818483047187 ] } },
+{ "type": "Feature", "properties": { "name": "Bad Kreuznach" }, "geometry": { "type": "Point", "coordinates": [ 875866.273132802452892, 6419227.259895650669932 ] } },
+{ "type": "Feature", "properties": { "name": "Gau Algesheim" }, "geometry": { "type": "Point", "coordinates": [ 892636.610080554615706, 6439791.179487181827426 ] } },
+{ "type": "Feature", "properties": { "name": "Bacharach" }, "geometry": { "type": "Point", "coordinates": [ 864872.527201294898987, 6456275.178362192586064 ] } },
+{ "type": "Feature", "properties": { "name": "Bingen (Rhein) Stadt" }, "geometry": { "type": "Point", "coordinates": [ 879898.354144927696325, 6441021.396437951363623 ] } },
+{ "type": "Feature", "properties": { "name": "Bingen (Rhein) Hbf" }, "geometry": { "type": "Point", "coordinates": [ 877664.583846822730266, 6440872.883691519498825 ] } }
+]
+}
