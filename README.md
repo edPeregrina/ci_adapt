@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/769067129.svg)](https://doi.org/10.5281/zenodo.14616999)
+
 # CI Adapt
 ## A multi-level adaptation model for critical infrastructure
 A python tool for appraisal of adaptation options for critical infrastructure based on direct damage, indirect losses, and adaptation costs. 
